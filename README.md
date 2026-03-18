@@ -29,7 +29,7 @@ Este repositório já está preparado para deploy com `docker-compose` no Coolif
 - **Porta exposta pelo container**: `80`
 - **Serviço principal**: `web`
 
-Se quiser alterar a porta publicada localmente, use a variável `APP_PORT`. No Coolify, normalmente basta publicar o serviço `web` e deixar o proxy gerenciar o acesso externo.
+Se quiser alterar a porta publicada localmente, use a variável `APP_PORT` ou copie `.env.example` para `.env`. No Coolify, normalmente basta publicar o serviço `web` e deixar o proxy gerenciar o acesso externo; a variável `APP_PORT` é opcional e serve apenas para ambientes sem proxy reverso.
 
 ## Desenvolvimento local sem Docker
 ```bash
