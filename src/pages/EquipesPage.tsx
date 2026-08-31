@@ -1,100 +1,330 @@
-import { useState } from 'react';
-import { equipes as initialEquipes, colaboradores, clientes } from '@/data/mock';
-import { Equipe } from '@/types/sgo';
+import { useMemo, useState } from 'react';
+import { Pencil, Plus, Search, UsersRound } from 'lucide-react';
+import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Plus, Search, Pencil, Users } from 'lucide-react';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Avatar, Aviso, BadgeStatus, CabecalhoPagina, EstadoVazio } from '@/components/comum';
+import { useDados, novoId } from '@/data/store';
+import { useAuth } from '@/contexts/AuthContext';
+import { equipesSemCobertura } from '@/lib/rh';
+import { hoje } from '@/lib/date';
+import type { Equipe } from '@/types/sgo';
 
 export default function EquipesPage() {
-  const [data, setData] = useState<Equipe[]>(initialEquipes);
-  const [search, setSearch] = useState('');
-  const [editing, setEditing] = useState<Equipe | null>(null);
-  const [isNew, setIsNew] = useState(false);
-  const [open, setOpen] = useState(false);
+  const {
+    equipes,
+    funcionarios,
+    clientes,
+    atendimentoEquipes,
+    departamentos,
+    plantoes,
+    ferias,
+    ausencias,
+    salvarEquipe,
+  } = useDados();
+  const { podeGerenciar, equipesVisiveis } = useAuth();
 
-  const filtered = data.filter(e => e.nome.toLowerCase().includes(search.toLowerCase()));
+  const [busca, setBusca] = useState('');
+  const [emEdicao, setEmEdicao] = useState<Equipe | null>(null);
+  const [ehNova, setEhNova] = useState(false);
 
-  const openNew = () => {
-    setEditing({ id: `eq${Date.now()}`, nome: '', ativo: true });
-    setIsNew(true); setOpen(true);
+  const visiveis = useMemo(
+    () => (equipesVisiveis === null ? equipes : equipes.filter((e) => equipesVisiveis.includes(e.id))),
+    [equipes, equipesVisiveis],
+  );
+
+  const filtradas = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+    return visiveis.filter((e) => e.nome.toLowerCase().includes(termo));
+  }, [visiveis, busca]);
+
+  const descobertas = useMemo(
+    () =>
+      new Map(
+        equipesSemCobertura({ equipes, funcionarios, plantoes, ferias, ausencias }).map((s) => [
+          s.equipe.id,
+          s,
+        ]),
+      ),
+    [equipes, funcionarios, plantoes, ferias, ausencias],
+  );
+
+  const hojeIso = hoje();
+
+  const abrirNova = () => {
+    setEmEdicao({
+      id: novoId('eq'),
+      nome: '',
+      cobertura_minima: 1,
+      ativo: true,
+    });
+    setEhNova(true);
   };
-  const openEdit = (e: Equipe) => { setEditing({ ...e }); setIsNew(false); setOpen(true); };
-  const save = () => {
-    if (!editing) return;
-    if (isNew) setData(prev => [...prev, editing]);
-    else setData(prev => prev.map(e => e.id === editing.id ? editing : e));
-    setOpen(false);
+
+  const salvar = () => {
+    if (!emEdicao) return;
+    if (!emEdicao.nome.trim()) return toast.error('Informe o nome da equipe.');
+    if (emEdicao.cobertura_minima < 0) return toast.error('A cobertura mínima não pode ser negativa.');
+
+    salvarEquipe({ ...emEdicao, nome: emEdicao.nome.trim() });
+    toast.success(ehNova ? 'Equipe criada.' : 'Equipe atualizada.');
+    setEmEdicao(null);
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Equipes</h1>
-          <p className="text-sm text-muted-foreground">{data.length} equipes cadastradas</p>
-        </div>
-        <Button onClick={openNew}><Plus className="h-4 w-4 mr-1" /> Nova Equipe</Button>
-      </div>
+    <div className="space-y-5">
+      <CabecalhoPagina
+        titulo="Equipes"
+        descricao={`${visiveis.filter((e) => e.ativo).length} equipes ativas de ${visiveis.length}`}
+        acoes={
+          podeGerenciar && (
+            <Button onClick={abrirNova}>
+              <Plus className="mr-2 h-4 w-4" /> Nova equipe
+            </Button>
+          )
+        }
+      />
 
       <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input placeholder="Buscar equipes..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          placeholder="Buscar equipes..."
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          className="pl-9"
+        />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map(eq => {
-          const membros = colaboradores.filter(c => c.equipe_id === eq.id && c.ativo);
-          const cliente = clientes.find(c => c.id === eq.cliente_id);
-          return (
-            <Card key={eq.id} className={!eq.ativo ? 'opacity-50' : ''}>
-              <CardHeader className="pb-2 flex flex-row items-start justify-between">
-                <div>
-                  <CardTitle className="text-base">{eq.nome}</CardTitle>
-                  {cliente && <p className="text-xs text-muted-foreground mt-1">{cliente.nome}</p>}
-                </div>
-                <div className="flex gap-1">
-                  <Badge variant={eq.ativo ? 'default' : 'secondary'}>{eq.ativo ? 'Ativa' : 'Inativa'}</Badge>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(eq)}>
-                    <Pencil className="h-3 w-3" />
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                  <Users className="h-4 w-4" />
-                  <span>{membros.length} colaborador{membros.length !== 1 ? 'es' : ''}</span>
-                </div>
-                <div className="mt-2 space-y-1">
-                  {membros.slice(0, 3).map(m => (
-                    <p key={m.id} className="text-xs">{m.nome}</p>
-                  ))}
-                  {membros.length > 3 && <p className="text-xs text-muted-foreground">+{membros.length - 3} mais</p>}
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
+      {filtradas.length === 0 ? (
+        <Card className="shadow-card">
+          <EstadoVazio icone={UsersRound} titulo="Nenhuma equipe encontrada" />
+        </Card>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {filtradas.map((eq) => {
+            const membros = funcionarios.filter(
+              (f) => f.equipe_id === eq.id && f.status !== 'desligado',
+            );
+            // Uma equipe pode atender várias contas — o vínculo vive em
+            // atendimentoEquipes e é gerido pela ficha do cliente.
+            const contasAtendidas = atendimentoEquipes
+              .filter((a) => a.equipe_id === eq.id)
+              .map((a) => clientes.find((c) => c.id === a.cliente_id))
+              .filter((c): c is NonNullable<typeof c> => c !== undefined);
+            const gestor = funcionarios.find((f) => f.id === eq.gestor_id);
+            const departamento = departamentos.find((d) => d.id === eq.departamento_id);
+            const emFerias = membros.filter((m) =>
+              ferias.some(
+                (f) =>
+                  f.funcionario_id === m.id &&
+                  f.status === 'aprovada' &&
+                  f.data_inicio <= hojeIso &&
+                  f.data_fim >= hojeIso,
+              ),
+            );
+            const furo = descobertas.get(eq.id);
 
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent>
-          <SheetHeader><SheetTitle>{isNew ? 'Nova Equipe' : 'Editar Equipe'}</SheetTitle></SheetHeader>
-          {editing && (
-            <div className="space-y-4 mt-6">
-              <div className="space-y-2">
+            return (
+              <Card key={eq.id} className={`shadow-card ${!eq.ativo ? 'opacity-60' : ''}`}>
+                <CardHeader className="flex flex-row items-start justify-between gap-2 pb-3">
+                  <div className="min-w-0">
+                    <CardTitle className="truncate text-base">{eq.nome}</CardTitle>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {departamento?.nome ?? 'Sem departamento'}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <BadgeStatus
+                      texto={eq.ativo ? 'Ativa' : 'Inativa'}
+                      classe={
+                        eq.ativo
+                          ? 'bg-success/15 text-success-strong border-success/30'
+                          : 'bg-muted text-muted-foreground border-border'
+                      }
+                      className="text-[10px]"
+                    />
+                    {podeGerenciar && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => {
+                          setEmEdicao({ ...eq });
+                          setEhNova(false);
+                        }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                </CardHeader>
+
+                <CardContent className="space-y-3">
+                  {furo && (
+                    <Aviso tom="destructive">
+                      Cobertura hoje: {furo.escalados}/{eq.cobertura_minima} — faltam {furo.faltam}.
+                    </Aviso>
+                  )}
+
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    {[
+                      { rotulo: 'Membros', valor: membros.length },
+                      { rotulo: 'De férias', valor: emFerias.length },
+                      { rotulo: 'Cobertura mín.', valor: eq.cobertura_minima },
+                    ].map((c) => (
+                      <div key={c.rotulo} className="rounded-lg border py-2">
+                        <p className="tabular text-lg font-bold leading-none">{c.valor}</p>
+                        <p className="mt-1 text-[10px] text-muted-foreground">{c.rotulo}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div>
+                    <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Contas atendidas
+                    </p>
+                    {contasAtendidas.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">Equipe interna</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {contasAtendidas.map((c) => (
+                          <BadgeStatus
+                            key={c.id}
+                            texto={c.nome}
+                            classe="bg-primary/10 text-primary border-primary/25"
+                            className="text-[10px]"
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Gestor
+                    </p>
+                    {gestor ? (
+                      <div className="flex items-center gap-2">
+                        <Avatar nome={gestor.nome} tamanho="sm" />
+                        <span className="truncate text-sm">{gestor.nome}</span>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Sem gestor definido</p>
+                    )}
+                  </div>
+
+                  {membros.length > 0 && (
+                    <div>
+                      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        Time
+                      </p>
+                      <div className="flex flex-wrap gap-1">
+                        {membros.slice(0, 8).map((m) => (
+                          <Avatar key={m.id} nome={m.nome} tamanho="sm" />
+                        ))}
+                        {membros.length > 8 && (
+                          <span className="grid h-7 w-7 place-items-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
+                            +{membros.length - 8}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      <Sheet open={emEdicao !== null} onOpenChange={(v) => !v && setEmEdicao(null)}>
+        <SheetContent className="w-full overflow-y-auto sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>{ehNova ? 'Nova equipe' : 'Editar equipe'}</SheetTitle>
+          </SheetHeader>
+          {emEdicao && (
+            <div className="mt-6 space-y-4">
+              <div className="space-y-1.5">
                 <Label>Nome</Label>
-                <Input value={editing.nome} onChange={e => setEditing({ ...editing, nome: e.target.value })} />
+                <Input
+                  value={emEdicao.nome}
+                  onChange={(e) => setEmEdicao({ ...emEdicao, nome: e.target.value })}
+                />
               </div>
-              <div className="flex items-center gap-2">
-                <Switch checked={editing.ativo} onCheckedChange={v => setEditing({ ...editing, ativo: v })} />
-                <Label>Ativa</Label>
+
+              <div className="space-y-1.5">
+                <Label>Departamento</Label>
+                <Select
+                  value={emEdicao.departamento_id ?? 'nenhum'}
+                  onValueChange={(v) =>
+                    setEmEdicao({ ...emEdicao, departamento_id: v === 'nenhum' ? undefined : v })
+                  }
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="nenhum">Sem departamento</SelectItem>
+                    {departamentos.map((d) => <SelectItem key={d.id} value={d.id}>{d.nome}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
-              <Button onClick={save} className="w-full">Salvar</Button>
+
+              <Aviso tom="info">
+                As contas atendidas por esta equipe são definidas na ficha de cada cliente, em
+                Clientes → Operação — assim uma equipe pode servir várias contas.
+              </Aviso>
+
+              <div className="space-y-1.5">
+                <Label>Gestor</Label>
+                <Select
+                  value={emEdicao.gestor_id ?? 'nenhum'}
+                  onValueChange={(v) =>
+                    setEmEdicao({ ...emEdicao, gestor_id: v === 'nenhum' ? undefined : v })
+                  }
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="nenhum">Sem gestor</SelectItem>
+                    {funcionarios
+                      .filter((f) => f.status !== 'desligado')
+                      .map((f) => <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Cobertura mínima diária</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={emEdicao.cobertura_minima}
+                  onChange={(e) =>
+                    setEmEdicao({ ...emEdicao, cobertura_minima: Number(e.target.value) || 0 })
+                  }
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Quantas pessoas precisam estar escaladas por dia. O sistema alerta quando falta.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <Label className="text-sm">Equipe ativa</Label>
+                <Switch
+                  checked={emEdicao.ativo}
+                  onCheckedChange={(v) => setEmEdicao({ ...emEdicao, ativo: v })}
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <Button variant="ghost" className="flex-1" onClick={() => setEmEdicao(null)}>
+                  Cancelar
+                </Button>
+                <Button className="flex-1" onClick={salvar}>Salvar</Button>
+              </div>
             </div>
           )}
         </SheetContent>

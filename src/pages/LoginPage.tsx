@@ -1,50 +1,142 @@
 import { useState } from 'react';
+import { ArrowRight, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useDados } from '@/data/store';
+import { Logo } from '@/components/brand/Logo';
+import { Avatar } from '@/components/comum';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
+import { PAPEL } from '@/lib/labels';
 
 export default function LoginPage() {
-  const { login } = useAuth();
-  const [email, setEmail] = useState('admin@sgo.com');
-  const [password, setPassword] = useState('admin');
-  const [error, setError] = useState('');
+  const { entrar } = useAuth();
+  const { usuarios, funcionarios } = useDados();
+  const [email, setEmail] = useState('helena.braga@lumini.com.br');
+  const [senha, setSenha] = useState('demo');
+  const [erro, setErro] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const enviar = (e: React.FormEvent) => {
     e.preventDefault();
-    const ok = login(email, password);
-    if (!ok) setError('Credenciais inválidas. Use admin@sgo.com ou carlos@sgo.com');
+    const r = entrar(email, senha);
+    if (!r.ok) setErro(r.erro ?? 'Não foi possível entrar.');
+  };
+
+  /** Entrada rápida por perfil: a demo existe para comparar o que cada papel vê. */
+  const entrarComo = (emailDoPerfil: string) => {
+    setEmail(emailDoPerfil);
+    setErro('');
+    const r = entrar(emailDoPerfil, 'demo');
+    if (!r.ok) setErro(r.erro ?? 'Não foi possível entrar.');
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="text-center">
-          <div className="mx-auto h-12 w-12 rounded-lg bg-primary flex items-center justify-center mb-2">
-            <span className="text-primary-foreground font-bold text-lg">SGO</span>
-          </div>
-          <CardTitle className="text-xl">Entrar no SGO</CardTitle>
-          <CardDescription>Sistema de Gestão Operacional</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">E-mail</Label>
-              <Input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Senha</Label>
-              <Input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} />
-            </div>
-            {error && <p className="text-sm text-destructive">{error}</p>}
-            <Button type="submit" className="w-full">Entrar</Button>
-            <p className="text-xs text-muted-foreground text-center mt-4">
-              Admin: admin@sgo.com · Gestor: carlos@sgo.com<br />Qualquer senha
+    // Hero navy como o do site — é onde a marca aparece por inteiro.
+    <div className="brand-hero flex min-h-screen items-center justify-center p-4">
+      <div className="w-full max-w-4xl">
+        <div className="grid gap-8 lg:grid-cols-[1.1fr_1fr] lg:gap-10">
+          {/* Apresentação */}
+          <div className="flex flex-col justify-center text-white">
+            <Logo tamanho="lg" />
+            <h1 className="mt-7 font-display text-3xl font-bold tracking-tight sm:text-4xl">
+              Central de <span className="text-brand-amber">Gestão de Pessoas</span>
+            </h1>
+            <p className="mt-3 max-w-md text-sm leading-relaxed text-white/70">
+              Funcionários, equipes, escalas e plantões, férias, ausências e solicitações de acesso
+              num só lugar — com as regras da CLT verificadas antes de cada aprovação.
             </p>
-          </form>
-        </CardContent>
-      </Card>
+
+            <ul className="mt-6 space-y-2">
+              {[
+                'Saldo de férias e período concessivo calculados automaticamente',
+                'Alerta de furo de escala antes que o plantão aconteça',
+                'Fila única de aprovação para os quatro fluxos de solicitação',
+                'Trilha de auditoria de toda alteração',
+              ].map((item) => (
+                <li key={item} className="flex items-start gap-2 text-sm text-white/70">
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-brand-amber" />
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Formulário */}
+          <Card className="shadow-raised">
+            <CardContent className="p-6">
+              <h2 className="font-display text-lg font-bold">Entrar</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Ambiente de demonstração — qualquer senha é aceita.
+              </p>
+
+              <form onSubmit={enviar} className="mt-5 space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="email">E-mail corporativo</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    autoComplete="username"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      setErro('');
+                    }}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="senha">Senha</Label>
+                  <Input
+                    id="senha"
+                    type="password"
+                    autoComplete="current-password"
+                    value={senha}
+                    onChange={(e) => setSenha(e.target.value)}
+                  />
+                </div>
+
+                {erro && (
+                  <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                    {erro}
+                  </p>
+                )}
+
+                <Button type="submit" className="w-full">
+                  Entrar <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </form>
+
+              <div className="mt-6">
+                <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Acessar como
+                </p>
+                <div className="space-y-1.5">
+                  {usuarios.map((u) => {
+                    const pessoa = funcionarios.find((f) => f.id === u.funcionario_id);
+                    return (
+                      <button
+                        key={u.id}
+                        type="button"
+                        onClick={() => entrarComo(u.email)}
+                        className="flex w-full items-center gap-2.5 rounded-lg border p-2 text-left transition-colors hover:bg-accent/60"
+                      >
+                        <Avatar nome={pessoa?.nome ?? '?'} tamanho="sm" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xs font-medium">{pessoa?.nome}</p>
+                          <p className="truncate text-[10px] text-muted-foreground">
+                            {PAPEL[u.role]} · {pessoa?.cargo}
+                          </p>
+                        </div>
+                        <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }

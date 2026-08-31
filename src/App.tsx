@@ -1,43 +1,95 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { Toaster } from "@/components/ui/toaster";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { AuthProvider, useAuth } from "@/contexts/AuthContext";
-import { AppLayout } from "@/components/AppLayout";
-import LoginPage from "@/pages/LoginPage";
-import DashboardPage from "@/pages/DashboardPage";
-import ClientesPage from "@/pages/ClientesPage";
-import EquipesPage from "@/pages/EquipesPage";
-import ColaboradoresPage from "@/pages/ColaboradoresPage";
-import GestoresPage from "@/pages/GestoresPage";
-import EscalasPage from "@/pages/EscalasPage";
-import PlantoesPage from "@/pages/PlantoesPage";
-import FeriasPage from "@/pages/FeriasPage";
-import NotFound from "@/pages/NotFound";
+import { Suspense, lazy } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { ThemeProvider } from 'next-themes';
+import { Toaster as Sonner } from '@/components/ui/sonner';
+import { Toaster } from '@/components/ui/toaster';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { Skeleton } from '@/components/ui/skeleton';
+import { DadosProvider } from '@/data/store';
+import { AuthProvider, useAuth } from '@/contexts/AuthContext';
+import { AppLayout } from '@/components/AppLayout';
+import type { UserRole } from '@/types/sgo';
+
+import LoginPage from '@/pages/LoginPage';
+import NotFound from '@/pages/NotFound';
+
+/**
+ * Só o login entra no pacote inicial. As telas internas — inclusive o portal,
+ * que carrega a biblioteca de gráficos — vêm sob demanda, para que quem abre a
+ * página de entrada não baixe o sistema inteiro.
+ */
+const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
+const FuncionariosPage = lazy(() => import('@/pages/FuncionariosPage'));
+const EquipesPage = lazy(() => import('@/pages/EquipesPage'));
+const GestoresPage = lazy(() => import('@/pages/GestoresPage'));
+const ClientesPage = lazy(() => import('@/pages/ClientesPage'));
+const EscalasPage = lazy(() => import('@/pages/EscalasPage'));
+const PlantoesPage = lazy(() => import('@/pages/PlantoesPage'));
+const AprovacoesPage = lazy(() => import('@/pages/AprovacoesPage'));
+const FeriasPage = lazy(() => import('@/pages/FeriasPage'));
+const AusenciasPage = lazy(() => import('@/pages/AusenciasPage'));
+const AcessosPage = lazy(() => import('@/pages/AcessosPage'));
+const ComunicadosPage = lazy(() => import('@/pages/ComunicadosPage'));
+const AuditoriaPage = lazy(() => import('@/pages/AuditoriaPage'));
 
 const queryClient = new QueryClient();
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
-  if (!user) return <Navigate to="/login" replace />;
-  return <AppLayout>{children}</AppLayout>;
+/** Esqueleto exibido enquanto o pedaço da rota é baixado. */
+function CarregandoPagina() {
+  return (
+    <div className="space-y-4">
+      <Skeleton className="h-8 w-56" />
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {Array.from({ length: 4 }, (_, i) => (
+          <Skeleton key={i} className="h-20" />
+        ))}
+      </div>
+      <Skeleton className="h-72" />
+    </div>
+  );
 }
 
-function AppRoutes() {
-  const { user } = useAuth();
+/**
+ * Envolve uma rota com sessão obrigatória e, opcionalmente, com restrição de
+ * papel. Sem sessão vai para o login; com papel insuficiente volta ao portal,
+ * já que o item sequer aparece no menu para esse usuário.
+ */
+function Protegida({ children, papeis }: { children: React.ReactNode; papeis?: UserRole[] }) {
+  const { sessao, papel } = useAuth();
+  if (!sessao) return <Navigate to="/login" replace />;
+  if (papeis && (papel === null || !papeis.includes(papel))) return <Navigate to="/" replace />;
+  return (
+    <AppLayout>
+      <Suspense fallback={<CarregandoPagina />}>{children}</Suspense>
+    </AppLayout>
+  );
+}
+
+const GESTAO: UserRole[] = ['admin', 'rh', 'gestor'];
+const RH: UserRole[] = ['admin', 'rh'];
+
+function Rotas() {
+  const { sessao } = useAuth();
 
   return (
     <Routes>
-      <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
-      <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
-      <Route path="/clientes" element={<ProtectedRoute><ClientesPage /></ProtectedRoute>} />
-      <Route path="/equipes" element={<ProtectedRoute><EquipesPage /></ProtectedRoute>} />
-      <Route path="/colaboradores" element={<ProtectedRoute><ColaboradoresPage /></ProtectedRoute>} />
-      <Route path="/gestores" element={<ProtectedRoute><GestoresPage /></ProtectedRoute>} />
-      <Route path="/escalas" element={<ProtectedRoute><EscalasPage /></ProtectedRoute>} />
-      <Route path="/plantoes" element={<ProtectedRoute><PlantoesPage /></ProtectedRoute>} />
-      <Route path="/ferias" element={<ProtectedRoute><FeriasPage /></ProtectedRoute>} />
+      <Route path="/login" element={sessao ? <Navigate to="/" replace /> : <LoginPage />} />
+
+      <Route path="/" element={<Protegida><DashboardPage /></Protegida>} />
+      <Route path="/funcionarios" element={<Protegida papeis={GESTAO}><FuncionariosPage /></Protegida>} />
+      <Route path="/equipes" element={<Protegida papeis={GESTAO}><EquipesPage /></Protegida>} />
+      <Route path="/gestores" element={<Protegida papeis={RH}><GestoresPage /></Protegida>} />
+      <Route path="/clientes" element={<Protegida papeis={GESTAO}><ClientesPage /></Protegida>} />
+      <Route path="/escalas" element={<Protegida papeis={GESTAO}><EscalasPage /></Protegida>} />
+      <Route path="/plantoes" element={<Protegida><PlantoesPage /></Protegida>} />
+      <Route path="/aprovacoes" element={<Protegida papeis={GESTAO}><AprovacoesPage /></Protegida>} />
+      <Route path="/ferias" element={<Protegida><FeriasPage /></Protegida>} />
+      <Route path="/ausencias" element={<Protegida><AusenciasPage /></Protegida>} />
+      <Route path="/acessos" element={<Protegida><AcessosPage /></Protegida>} />
+      <Route path="/comunicados" element={<Protegida><ComunicadosPage /></Protegida>} />
+      <Route path="/auditoria" element={<Protegida papeis={RH}><AuditoriaPage /></Protegida>} />
+
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
@@ -45,15 +97,20 @@ function AppRoutes() {
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <AuthProvider>
-          <AppRoutes />
-        </AuthProvider>
-      </BrowserRouter>
-    </TooltipProvider>
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+      <TooltipProvider delayDuration={300}>
+        <Toaster />
+        <Sonner position="top-right" richColors closeButton />
+        {/* Os dados ficam por fora da sessão: o login lê os usuários da base. */}
+        <DadosProvider>
+          <BrowserRouter>
+            <AuthProvider>
+              <Rotas />
+            </AuthProvider>
+          </BrowserRouter>
+        </DadosProvider>
+      </TooltipProvider>
+    </ThemeProvider>
   </QueryClientProvider>
 );
 

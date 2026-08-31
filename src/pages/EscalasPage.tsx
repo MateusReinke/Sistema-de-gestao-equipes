@@ -1,117 +1,235 @@
-import { useState } from 'react';
-import { escalas as initial, escalaDetalhes, escalaColaboradores, colaboradores } from '@/data/mock';
-import { Escala, TipoEscala } from '@/types/sgo';
+import { useMemo, useState } from 'react';
+import { CalendarClock, Pencil, Plus, Search } from 'lucide-react';
+import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Search, Pencil, CalendarClock } from 'lucide-react';
-
-const diasSemana = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-const tipoLabels: Record<TipoEscala, string> = { '12x36': '12×36', '5x2': '5×2', personalizada: 'Personalizada' };
+import { Avatar, BadgeStatus, CabecalhoPagina, EstadoVazio } from '@/components/comum';
+import { useDados, novoId } from '@/data/store';
+import { useAuth } from '@/contexts/AuthContext';
+import { DIAS_SEMANA, duracaoTurnoHoras, formatarData, hoje } from '@/lib/date';
+import { TIPO_ESCALA } from '@/lib/labels';
+import type { Escala, TipoEscala } from '@/types/sgo';
 
 export default function EscalasPage() {
-  const [data, setData] = useState<Escala[]>(initial);
-  const [search, setSearch] = useState('');
-  const [editing, setEditing] = useState<Escala | null>(null);
-  const [isNew, setIsNew] = useState(false);
-  const [open, setOpen] = useState(false);
+  const { escalas, escalaDetalhes, escalaFuncionarios, funcionarios, salvarEscala } = useDados();
+  const { podeGerenciar } = useAuth();
 
-  const filtered = data.filter(e => e.nome.toLowerCase().includes(search.toLowerCase()));
+  const [busca, setBusca] = useState('');
+  const [emEdicao, setEmEdicao] = useState<Escala | null>(null);
+  const [ehNova, setEhNova] = useState(false);
 
-  const openNew = () => {
-    setEditing({ id: `esc${Date.now()}`, nome: '', tipo: '5x2', descricao: '' });
-    setIsNew(true); setOpen(true);
+  const hojeIso = hoje();
+
+  const filtradas = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+    return escalas.filter(
+      (e) => e.nome.toLowerCase().includes(termo) || e.descricao.toLowerCase().includes(termo),
+    );
+  }, [escalas, busca]);
+
+  const abrirNova = () => {
+    setEmEdicao({ id: novoId('esc'), nome: '', tipo: '5x2', descricao: '', ativo: true });
+    setEhNova(true);
   };
-  const openEdit = (e: Escala) => { setEditing({ ...e }); setIsNew(false); setOpen(true); };
-  const save = () => {
-    if (!editing) return;
-    if (isNew) setData(prev => [...prev, editing]);
-    else setData(prev => prev.map(e => e.id === editing.id ? editing : e));
-    setOpen(false);
+
+  const salvar = () => {
+    if (!emEdicao) return;
+    if (!emEdicao.nome.trim()) return toast.error('Informe o nome da escala.');
+    salvarEscala({ ...emEdicao, nome: emEdicao.nome.trim() });
+    toast.success(ehNova ? 'Escala criada.' : 'Escala atualizada.');
+    setEmEdicao(null);
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Escalas</h1>
-          <p className="text-sm text-muted-foreground">{data.length} escalas configuradas</p>
-        </div>
-        <Button onClick={openNew}><Plus className="h-4 w-4 mr-1" /> Nova Escala</Button>
-      </div>
+    <div className="space-y-5">
+      <CabecalhoPagina
+        titulo="Escalas"
+        descricao="Modelos de turno e quem está vinculado a cada um."
+        acoes={
+          podeGerenciar && (
+            <Button onClick={abrirNova}>
+              <Plus className="mr-2 h-4 w-4" /> Nova escala
+            </Button>
+          )
+        }
+      />
 
       <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input placeholder="Buscar escalas..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          placeholder="Buscar escalas..."
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          className="pl-9"
+        />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {filtered.map(esc => {
-          const detalhes = escalaDetalhes.filter(d => d.escala_id === esc.id);
-          const vinculados = escalaColaboradores.filter(ec => ec.escala_id === esc.id);
-          return (
-            <Card key={esc.id}>
-              <CardHeader className="pb-2 flex flex-row items-start justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
-                    <CalendarClock className="h-4 w-4 text-primary" />
+      {filtradas.length === 0 ? (
+        <Card className="shadow-card">
+          <EstadoVazio icone={CalendarClock} titulo="Nenhuma escala encontrada" />
+        </Card>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {filtradas.map((esc) => {
+            const detalhes = escalaDetalhes
+              .filter((d) => d.escala_id === esc.id)
+              .sort((a, b) => a.dia_semana - b.dia_semana);
+            const vinculos = escalaFuncionarios.filter(
+              (v) => v.escala_id === esc.id && v.data_fim >= hojeIso,
+            );
+            const cargaSemanal = detalhes.reduce(
+              (soma, d) => soma + duracaoTurnoHoras(d.hora_inicio, d.hora_fim),
+              0,
+            );
+
+            return (
+              <Card key={esc.id} className={`shadow-card ${!esc.ativo ? 'opacity-60' : ''}`}>
+                <CardHeader className="flex flex-row items-start justify-between gap-2 pb-3">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10">
+                      <CalendarClock className="h-5 w-5 text-primary" />
+                    </div>
+                    <div className="min-w-0">
+                      <CardTitle className="truncate text-base">{esc.nome}</CardTitle>
+                      <p className="truncate text-xs text-muted-foreground">{esc.descricao}</p>
+                    </div>
                   </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <BadgeStatus
+                      texto={TIPO_ESCALA[esc.tipo]}
+                      classe="bg-primary/10 text-primary border-primary/25"
+                      className="text-[10px]"
+                    />
+                    {podeGerenciar && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => {
+                          setEmEdicao({ ...esc });
+                          setEhNova(false);
+                        }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                </CardHeader>
+
+                <CardContent className="space-y-3">
+                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                    <span className="tabular">
+                      <strong className="text-foreground">{cargaSemanal}h</strong> por semana
+                    </span>
+                    <span className="tabular">
+                      <strong className="text-foreground">{vinculos.length}</strong> vinculado(s)
+                    </span>
+                  </div>
+
                   <div>
-                    <CardTitle className="text-base">{esc.nome}</CardTitle>
-                    <p className="text-xs text-muted-foreground">{esc.descricao}</p>
+                    <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Turnos
+                    </p>
+                    {detalhes.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">Sem horários definidos.</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {detalhes.map((d) => (
+                          <span
+                            key={d.id}
+                            className="tabular rounded border bg-muted px-2 py-0.5 text-[11px]"
+                          >
+                            {DIAS_SEMANA[d.dia_semana]} {d.hora_inicio}–{d.hora_fim}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Badge variant="outline">{tipoLabels[esc.tipo]}</Badge>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(esc)}><Pencil className="h-3 w-3" /></Button>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-1">Horários:</p>
-                  <div className="flex flex-wrap gap-1">
-                    {detalhes.map(d => (
-                      <Badge key={d.id} variant="secondary" className="text-xs font-mono">
-                        {diasSemana[d.dia_semana]} {d.hora_inicio}–{d.hora_fim}
-                      </Badge>
-                    ))}
-                    {detalhes.length === 0 && <span className="text-xs text-muted-foreground">Sem horários definidos</span>}
-                  </div>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-1">Colaboradores ({vinculados.length}):</p>
-                  <div className="flex flex-wrap gap-1">
-                    {vinculados.map(ec => {
-                      const col = colaboradores.find(c => c.id === ec.colaborador_id);
-                      return <Badge key={ec.id} variant="outline" className="text-xs">{col?.nome}</Badge>;
-                    })}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
 
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent>
-          <SheetHeader><SheetTitle>{isNew ? 'Nova Escala' : 'Editar Escala'}</SheetTitle></SheetHeader>
-          {editing && (
-            <div className="space-y-4 mt-6">
-              <div className="space-y-2"><Label>Nome</Label><Input value={editing.nome} onChange={e => setEditing({ ...editing, nome: e.target.value })} /></div>
-              <div className="space-y-2">
+                  <div>
+                    <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Vinculados
+                    </p>
+                    {vinculos.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">Ninguém vinculado atualmente.</p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {vinculos.map((v) => {
+                          const pessoa = funcionarios.find((f) => f.id === v.funcionario_id);
+                          return (
+                            <div key={v.id} className="flex items-center gap-2">
+                              <Avatar nome={pessoa?.nome ?? '?'} tamanho="sm" />
+                              <span className="min-w-0 flex-1 truncate text-sm">{pessoa?.nome}</span>
+                              <span className="tabular shrink-0 text-[11px] text-muted-foreground">
+                                até {formatarData(v.data_fim)}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      <Sheet open={emEdicao !== null} onOpenChange={(v) => !v && setEmEdicao(null)}>
+        <SheetContent className="w-full overflow-y-auto sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>{ehNova ? 'Nova escala' : 'Editar escala'}</SheetTitle>
+          </SheetHeader>
+          {emEdicao && (
+            <div className="mt-6 space-y-4">
+              <div className="space-y-1.5">
+                <Label>Nome</Label>
+                <Input
+                  value={emEdicao.nome}
+                  onChange={(e) => setEmEdicao({ ...emEdicao, nome: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
                 <Label>Tipo</Label>
-                <Select value={editing.tipo} onValueChange={v => setEditing({ ...editing, tipo: v as TipoEscala })}>
+                <Select
+                  value={emEdicao.tipo}
+                  onValueChange={(v) => setEmEdicao({ ...emEdicao, tipo: v as TipoEscala })}
+                >
                   <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>{Object.entries(tipoLabels).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}</SelectContent>
+                  <SelectContent>
+                    {(Object.keys(TIPO_ESCALA) as TipoEscala[]).map((t) => (
+                      <SelectItem key={t} value={t}>{TIPO_ESCALA[t]}</SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2"><Label>Descrição</Label><Input value={editing.descricao} onChange={e => setEditing({ ...editing, descricao: e.target.value })} /></div>
-              <Button onClick={save} className="w-full">Salvar</Button>
+              <div className="space-y-1.5">
+                <Label>Descrição</Label>
+                <Input
+                  value={emEdicao.descricao}
+                  placeholder="Ex.: Turno diurno 07h–19h em dias alternados"
+                  onChange={(e) => setEmEdicao({ ...emEdicao, descricao: e.target.value })}
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <Label className="text-sm">Escala ativa</Label>
+                <Switch
+                  checked={emEdicao.ativo}
+                  onCheckedChange={(v) => setEmEdicao({ ...emEdicao, ativo: v })}
+                />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <Button variant="ghost" className="flex-1" onClick={() => setEmEdicao(null)}>
+                  Cancelar
+                </Button>
+                <Button className="flex-1" onClick={salvar}>Salvar</Button>
+              </div>
             </div>
           )}
         </SheetContent>
