@@ -1,117 +1,232 @@
-import { useState } from 'react';
-import { clientes, colaboradores } from '@/data/mock';
-import { Cliente } from '@/types/sgo';
+import { useMemo, useState } from 'react';
+import { Building2, Pencil, Plus, Search } from 'lucide-react';
+import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Card } from '@/components/ui/card';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Switch } from '@/components/ui/switch';
-import { Plus, Search, Pencil } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { BadgeStatus, CabecalhoPagina, EstadoVazio } from '@/components/comum';
+import { useDados, novoId } from '@/data/store';
+import { useAuth } from '@/contexts/AuthContext';
+import type { Cliente } from '@/types/sgo';
 
 export default function ClientesPage() {
-  const [data, setData] = useState<Cliente[]>(clientes);
-  const [search, setSearch] = useState('');
-  const [editing, setEditing] = useState<Cliente | null>(null);
-  const [isNew, setIsNew] = useState(false);
-  const [open, setOpen] = useState(false);
+  const { clientes, funcionarios, equipes, salvarCliente } = useDados();
+  const { podeGerenciar } = useAuth();
 
-  const filtered = data.filter(c => c.nome.toLowerCase().includes(search.toLowerCase()));
+  const [busca, setBusca] = useState('');
+  const [emEdicao, setEmEdicao] = useState<Cliente | null>(null);
+  const [ehNovo, setEhNovo] = useState(false);
 
-  const openNew = () => {
-    setEditing({ id: `c${Date.now()}`, nome: '', id_whatsapp: '', escalation: '', responsavel_interno_id: '', ativo: true });
-    setIsNew(true);
-    setOpen(true);
+  const filtrados = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+    return clientes.filter((c) => c.nome.toLowerCase().includes(termo));
+  }, [clientes, busca]);
+
+  const responsavel = (id: string) => funcionarios.find((f) => f.id === id)?.nome ?? '—';
+  const equipesDoCliente = (id: string) => equipes.filter((e) => e.cliente_id === id);
+
+  const abrirNovo = () => {
+    setEmEdicao({
+      id: novoId('c'),
+      nome: '',
+      id_whatsapp: '',
+      escalation: '',
+      responsavel_interno_id: funcionarios.find((f) => f.status !== 'desligado')?.id ?? '',
+      sla_resposta_min: 30,
+      ativo: true,
+    });
+    setEhNovo(true);
   };
 
-  const openEdit = (c: Cliente) => { setEditing({ ...c }); setIsNew(false); setOpen(true); };
+  const salvar = () => {
+    if (!emEdicao) return;
+    if (!emEdicao.nome.trim()) return toast.error('Informe o nome do cliente.');
+    if (emEdicao.sla_resposta_min <= 0) return toast.error('O SLA deve ser maior que zero.');
 
-  const save = () => {
-    if (!editing) return;
-    if (isNew) setData(prev => [...prev, editing]);
-    else setData(prev => prev.map(c => c.id === editing.id ? editing : c));
-    setOpen(false);
+    salvarCliente({ ...emEdicao, nome: emEdicao.nome.trim() });
+    toast.success(ehNovo ? 'Cliente cadastrado.' : 'Cliente atualizado.');
+    setEmEdicao(null);
   };
-
-  const getResponsavel = (id: string) => colaboradores.find(c => c.id === id)?.nome || '—';
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Clientes</h1>
-          <p className="text-sm text-muted-foreground">{data.length} registros</p>
-        </div>
-        <Button onClick={openNew}><Plus className="h-4 w-4 mr-1" /> Novo Cliente</Button>
-      </div>
+    <div className="space-y-5">
+      <CabecalhoPagina
+        titulo="Clientes"
+        descricao={`${clientes.filter((c) => c.ativo).length} contratos ativos de ${clientes.length}`}
+        acoes={
+          podeGerenciar && (
+            <Button onClick={abrirNovo}>
+              <Plus className="mr-2 h-4 w-4" /> Novo cliente
+            </Button>
+          )
+        }
+      />
 
       <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input placeholder="Buscar clientes..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          placeholder="Buscar clientes..."
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          className="pl-9"
+        />
       </div>
 
-      <Card>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Nome</TableHead>
-              <TableHead>WhatsApp</TableHead>
-              <TableHead>Escalation</TableHead>
-              <TableHead>Responsável</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="w-10"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filtered.length === 0 ? (
-              <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Nenhum cliente encontrado.</TableCell></TableRow>
-            ) : filtered.map(c => (
-              <TableRow key={c.id} className={!c.ativo ? 'opacity-50' : ''}>
-                <TableCell className="font-medium">{c.nome}</TableCell>
-                <TableCell className="font-mono text-xs">{c.id_whatsapp}</TableCell>
-                <TableCell className="text-sm">{c.escalation}</TableCell>
-                <TableCell className="text-sm">{getResponsavel(c.responsavel_interno_id)}</TableCell>
-                <TableCell><Badge variant={c.ativo ? 'default' : 'secondary'}>{c.ativo ? 'Ativo' : 'Inativo'}</Badge></TableCell>
-                <TableCell><Button variant="ghost" size="icon" onClick={() => openEdit(c)}><Pencil className="h-4 w-4" /></Button></TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+      <Card className="overflow-hidden shadow-card">
+        {filtrados.length === 0 ? (
+          <EstadoVazio icone={Building2} titulo="Nenhum cliente encontrado" />
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Cliente</TableHead>
+                  <TableHead className="hidden lg:table-cell">Equipes</TableHead>
+                  <TableHead className="hidden md:table-cell">WhatsApp</TableHead>
+                  <TableHead className="hidden xl:table-cell">Escalonamento</TableHead>
+                  <TableHead className="hidden sm:table-cell">Responsável</TableHead>
+                  <TableHead>SLA</TableHead>
+                  <TableHead>Situação</TableHead>
+                  <TableHead className="w-10" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtrados.map((c) => (
+                  <TableRow key={c.id} className={!c.ativo ? 'opacity-60' : ''}>
+                    <TableCell className="font-medium">{c.nome}</TableCell>
+                    <TableCell className="hidden lg:table-cell">
+                      <div className="flex flex-wrap gap-1">
+                        {equipesDoCliente(c.id).map((e) => (
+                          <span
+                            key={e.id}
+                            className="rounded border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                          >
+                            {e.nome}
+                          </span>
+                        ))}
+                        {equipesDoCliente(c.id).length === 0 && (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="tabular hidden text-xs md:table-cell">{c.id_whatsapp}</TableCell>
+                    <TableCell className="hidden max-w-[220px] truncate text-xs xl:table-cell">
+                      {c.escalation}
+                    </TableCell>
+                    <TableCell className="hidden text-sm sm:table-cell">
+                      {responsavel(c.responsavel_interno_id)}
+                    </TableCell>
+                    <TableCell className="tabular text-sm">{c.sla_resposta_min} min</TableCell>
+                    <TableCell>
+                      <BadgeStatus
+                        texto={c.ativo ? 'Ativo' : 'Inativo'}
+                        classe={
+                          c.ativo
+                            ? 'bg-success/15 text-success-strong border-success/30'
+                            : 'bg-muted text-muted-foreground border-border'
+                        }
+                        className="text-[10px]"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      {podeGerenciar && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setEmEdicao({ ...c });
+                            setEhNovo(false);
+                          }}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
       </Card>
 
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent>
+      <Sheet open={emEdicao !== null} onOpenChange={(v) => !v && setEmEdicao(null)}>
+        <SheetContent className="w-full overflow-y-auto sm:max-w-md">
           <SheetHeader>
-            <SheetTitle>{isNew ? 'Novo Cliente' : 'Editar Cliente'}</SheetTitle>
+            <SheetTitle>{ehNovo ? 'Novo cliente' : 'Editar cliente'}</SheetTitle>
           </SheetHeader>
-          {editing && (
-            <div className="space-y-4 mt-6">
-              <div className="space-y-2">
+          {emEdicao && (
+            <div className="mt-6 space-y-4">
+              <div className="space-y-1.5">
                 <Label>Nome</Label>
-                <Input value={editing.nome} onChange={e => setEditing({ ...editing, nome: e.target.value })} />
+                <Input
+                  value={emEdicao.nome}
+                  onChange={(e) => setEmEdicao({ ...emEdicao, nome: e.target.value })}
+                />
               </div>
-              <div className="space-y-2">
-                <Label>WhatsApp ID</Label>
-                <Input value={editing.id_whatsapp} onChange={e => setEditing({ ...editing, id_whatsapp: e.target.value })} />
+              <div className="space-y-1.5">
+                <Label>ID do WhatsApp</Label>
+                <Input
+                  value={emEdicao.id_whatsapp}
+                  placeholder="5511990000000"
+                  onChange={(e) => setEmEdicao({ ...emEdicao, id_whatsapp: e.target.value })}
+                />
               </div>
-              <div className="space-y-2">
-                <Label>Escalation</Label>
-                <Input value={editing.escalation} onChange={e => setEditing({ ...editing, escalation: e.target.value })} />
+              <div className="space-y-1.5">
+                <Label>Contato de escalonamento</Label>
+                <Input
+                  value={emEdicao.escalation}
+                  placeholder="Nome — cargo"
+                  onChange={(e) => setEmEdicao({ ...emEdicao, escalation: e.target.value })}
+                />
               </div>
-              <div className="flex items-center gap-2">
-                <Switch checked={editing.ativo} onCheckedChange={v => setEditing({ ...editing, ativo: v })} />
-                <Label>Ativo</Label>
+              <div className="space-y-1.5">
+                <Label>Responsável interno</Label>
+                <Select
+                  value={emEdicao.responsavel_interno_id}
+                  onValueChange={(v) => setEmEdicao({ ...emEdicao, responsavel_interno_id: v })}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {funcionarios
+                      .filter((f) => f.status !== 'desligado')
+                      .map((f) => <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
-              <Button onClick={save} className="w-full">Salvar</Button>
+              <div className="space-y-1.5">
+                <Label>SLA de resposta (minutos)</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={emEdicao.sla_resposta_min}
+                  onChange={(e) =>
+                    setEmEdicao({ ...emEdicao, sla_resposta_min: Number(e.target.value) || 0 })
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <Label className="text-sm">Contrato ativo</Label>
+                <Switch
+                  checked={emEdicao.ativo}
+                  onCheckedChange={(v) => setEmEdicao({ ...emEdicao, ativo: v })}
+                />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <Button variant="ghost" className="flex-1" onClick={() => setEmEdicao(null)}>
+                  Cancelar
+                </Button>
+                <Button className="flex-1" onClick={salvar}>Salvar</Button>
+              </div>
             </div>
           )}
         </SheetContent>
       </Sheet>
     </div>
   );
-}
-
-function Card({ children }: { children: React.ReactNode }) {
-  return <div className="rounded-lg border bg-card shadow-sm overflow-hidden">{children}</div>;
 }

@@ -1,7 +1,9 @@
 FROM node:22-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
+# `npm ci` instala exatamente o que está no lockfile — build reproduzível.
+# As devDependencies são necessárias: o Vite e o Tailwind rodam no build.
+RUN npm ci
 COPY . .
 RUN npm run build
 

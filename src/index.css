@@ -1,84 +1,134 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/**
+ * Identidade Lumini IT Solutions.
+ *
+ * As quatro cores da marca vêm dos círculos sobrepostos da logo. Todo o resto
+ * do tema é derivado delas — trocar os valores de `--brand-*` e das cores
+ * semânticas abaixo reveste o app inteiro sem tocar em componente nenhum.
+ *
+ * Cada cor semântica tem três papéis:
+ *   --x            cor cheia (fundo de botão, preenchimento de gráfico)
+ *   --x-foreground texto sobre a cor cheia
+ *   --x-strong     texto da cor sobre fundo claro tingido (contraste AA)
+ */
 @layer base {
   :root {
-    --background: 220 14% 96%;
-    --foreground: 222 47% 11%;
+    /* Cores da marca, extraídas da logo. */
+    --brand-orange: 26 86% 58%;
+    --brand-coral: 8 78% 58%;
+    --brand-gold: 42 96% 56%;
+    --brand-blue: 199 68% 51%;
+    --brand-ink: 222 44% 10%;
+
+    --background: 40 20% 97%;
+    --foreground: 222 42% 12%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 222 42% 12%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover-foreground: 222 42% 12%;
 
-    --primary: 217 91% 60%;
+    --primary: 26 86% 52%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 220 14% 92%;
-    --secondary-foreground: 222 47% 11%;
+    --secondary: 36 22% 93%;
+    --secondary-foreground: 222 42% 12%;
 
-    --muted: 220 14% 92%;
-    --muted-foreground: 220 9% 46%;
+    --muted: 36 20% 94%;
+    --muted-foreground: 222 12% 42%;
 
-    --accent: 220 14% 92%;
-    --accent-foreground: 222 47% 11%;
+    --accent: 26 80% 95%;
+    --accent-foreground: 26 86% 32%;
 
-    --destructive: 0 84% 60%;
+    --destructive: 8 74% 52%;
     --destructive-foreground: 0 0% 100%;
+    --destructive-strong: 8 74% 42%;
 
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 217 91% 60%;
-
-    --radius: 0.5rem;
-
-    --success: 160 84% 39%;
+    --success: 160 76% 36%;
     --success-foreground: 0 0% 100%;
-    --warning: 38 92% 50%;
-    --warning-foreground: 0 0% 100%;
+    --success-strong: 160 80% 26%;
 
-    --sidebar-background: 222 47% 11%;
-    --sidebar-foreground: 220 14% 92%;
-    --sidebar-primary: 217 91% 60%;
+    --warning: 38 94% 48%;
+    --warning-foreground: 222 42% 12%;
+    --warning-strong: 30 90% 34%;
+
+    --info: 199 68% 46%;
+    --info-foreground: 0 0% 100%;
+    --info-strong: 202 78% 34%;
+
+    --border: 34 16% 88%;
+    --input: 34 16% 86%;
+    --ring: 26 86% 52%;
+
+    --radius: 0.75rem;
+
+    /* A barra lateral é sempre escura, nos dois temas — é a âncora da marca. */
+    --sidebar-background: 222 44% 10%;
+    --sidebar-foreground: 214 18% 80%;
+    --sidebar-primary: 26 86% 58%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 222 40% 16%;
-    --sidebar-accent-foreground: 220 14% 92%;
-    --sidebar-border: 222 40% 16%;
-    --sidebar-ring: 217 91% 60%;
+    --sidebar-accent: 222 38% 16%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 222 34% 18%;
+    --sidebar-ring: 26 86% 58%;
   }
 
   .dark {
-    --background: 222 47% 6%;
-    --foreground: 220 14% 92%;
-    --card: 222 47% 9%;
-    --card-foreground: 220 14% 92%;
-    --popover: 222 47% 9%;
-    --popover-foreground: 220 14% 92%;
-    --primary: 217 91% 60%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 222 40% 16%;
-    --secondary-foreground: 220 14% 92%;
-    --muted: 222 40% 16%;
-    --muted-foreground: 220 9% 56%;
-    --accent: 222 40% 16%;
-    --accent-foreground: 220 14% 92%;
-    --destructive: 0 62% 30%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 222 40% 16%;
-    --input: 222 40% 16%;
-    --ring: 217 91% 60%;
-    --sidebar-background: 222 47% 6%;
-    --sidebar-foreground: 220 14% 92%;
-    --sidebar-primary: 217 91% 60%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 222 40% 12%;
-    --sidebar-accent-foreground: 220 14% 92%;
-    --sidebar-border: 222 40% 12%;
-    --sidebar-ring: 217 91% 60%;
+    --background: 222 42% 7%;
+    --foreground: 213 20% 92%;
+
+    --card: 222 40% 10%;
+    --card-foreground: 213 20% 92%;
+
+    --popover: 222 40% 11%;
+    --popover-foreground: 213 20% 92%;
+
+    --primary: 26 88% 58%;
+    --primary-foreground: 222 44% 8%;
+
+    --secondary: 222 34% 16%;
+    --secondary-foreground: 213 20% 92%;
+
+    --muted: 222 32% 15%;
+    --muted-foreground: 215 16% 62%;
+
+    --accent: 222 34% 18%;
+    --accent-foreground: 26 88% 62%;
+
+    --destructive: 8 74% 58%;
+    --destructive-foreground: 222 44% 8%;
+    --destructive-strong: 8 84% 70%;
+
+    --success: 160 66% 42%;
+    --success-foreground: 222 44% 8%;
+    --success-strong: 158 68% 58%;
+
+    --warning: 38 92% 55%;
+    --warning-foreground: 222 44% 8%;
+    --warning-strong: 40 94% 65%;
+
+    --info: 199 70% 54%;
+    --info-foreground: 222 44% 8%;
+    --info-strong: 199 84% 68%;
+
+    --border: 222 30% 18%;
+    --input: 222 30% 20%;
+    --ring: 26 88% 58%;
+
+    --sidebar-background: 222 46% 6%;
+    --sidebar-foreground: 214 18% 78%;
+    --sidebar-primary: 26 88% 58%;
+    --sidebar-primary-foreground: 222 44% 8%;
+    --sidebar-accent: 222 36% 13%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 222 32% 14%;
+    --sidebar-ring: 26 88% 58%;
   }
 }
 
@@ -86,8 +136,55 @@
   * {
     @apply border-border;
   }
+
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+    letter-spacing: -0.02em;
+  }
+
+  /* Números tabulares em métricas e horários evitam o texto "dançar". */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-border;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/40;
+  }
+}
+
+@layer components {
+  /* Fundo com o brilho das cores da marca — usado no login e em vazios. */
+  .brand-glow {
+    background-image:
+      radial-gradient(60rem 32rem at 78% -8%, hsl(var(--brand-orange) / 0.16), transparent 62%),
+      radial-gradient(46rem 30rem at 4% 104%, hsl(var(--brand-blue) / 0.14), transparent 60%);
+  }
+
+  .brand-gradient-text {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(
+      95deg,
+      hsl(var(--brand-orange)),
+      hsl(var(--brand-coral)) 55%,
+      hsl(var(--brand-gold))
+    );
   }
 }

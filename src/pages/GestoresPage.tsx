@@ -1,115 +1,134 @@
-import { useState } from 'react';
-import { gestores as initial, equipes } from '@/data/mock';
-import { Gestor } from '@/types/sgo';
+import { useMemo, useState } from 'react';
+import { Search, UserCog } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Label } from '@/components/ui/label';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Plus, Search, Pencil, UserCog } from 'lucide-react';
+import { Avatar, BadgeStatus, CabecalhoPagina, Campo, EstadoVazio } from '@/components/comum';
+import { useDados } from '@/data/store';
+import { usePendencias } from '@/hooks/usePendencias';
+import { formatarTempoDeCasa } from '@/lib/rh';
+import { hoje } from '@/lib/date';
 
+/**
+ * Gestores derivam de `Equipe.gestor_id` em vez de existirem como cadastro
+ * próprio. Antes, um gestor era duplicado em duas tabelas — nome e e-mail
+ * podiam divergir do cadastro de funcionário sem que nada acusasse.
+ */
 export default function GestoresPage() {
-  const [data, setData] = useState<Gestor[]>(initial);
-  const [search, setSearch] = useState('');
-  const [editing, setEditing] = useState<Gestor | null>(null);
-  const [isNew, setIsNew] = useState(false);
-  const [open, setOpen] = useState(false);
+  const { equipes, funcionarios, ferias, clientes } = useDados();
+  const { todas: pendencias } = usePendencias();
+  const [busca, setBusca] = useState('');
+  const hojeIso = hoje();
 
-  const filtered = data.filter(g => g.nome.toLowerCase().includes(search.toLowerCase()));
+  const gestores = useMemo(() => {
+    const ids = new Set(equipes.filter((e) => e.gestor_id).map((e) => e.gestor_id!));
+    return funcionarios
+      .filter((f) => ids.has(f.id))
+      .map((gestor) => {
+        const equipesDele = equipes.filter((e) => e.gestor_id === gestor.id);
+        const idsEquipes = new Set(equipesDele.map((e) => e.id));
+        const liderados = funcionarios.filter(
+          (f) => idsEquipes.has(f.equipe_id) && f.status !== 'desligado' && f.id !== gestor.id,
+        );
+        const emFerias = liderados.filter((l) =>
+          ferias.some(
+            (f) =>
+              f.funcionario_id === l.id &&
+              f.status === 'aprovada' &&
+              f.data_inicio <= hojeIso &&
+              f.data_fim >= hojeIso,
+          ),
+        ).length;
+        const fila = pendencias.filter(
+          (p) => p.equipe_id !== undefined && idsEquipes.has(p.equipe_id),
+        ).length;
 
-  const openNew = () => {
-    setEditing({ id: `g${Date.now()}`, nome: '', email: '', equipe_ids: [] });
-    setIsNew(true); setOpen(true);
-  };
-  const openEdit = (g: Gestor) => { setEditing({ ...g, equipe_ids: [...g.equipe_ids] }); setIsNew(false); setOpen(true); };
-  const save = () => {
-    if (!editing) return;
-    if (isNew) setData(prev => [...prev, editing]);
-    else setData(prev => prev.map(g => g.id === editing.id ? editing : g));
-    setOpen(false);
-  };
-  const toggleEquipe = (eqId: string) => {
-    if (!editing) return;
-    const ids = editing.equipe_ids.includes(eqId)
-      ? editing.equipe_ids.filter(id => id !== eqId)
-      : [...editing.equipe_ids, eqId];
-    setEditing({ ...editing, equipe_ids: ids });
-  };
+        return { gestor, equipesDele, liderados, emFerias, fila };
+      })
+      .sort((a, b) => b.liderados.length - a.liderados.length);
+  }, [equipes, funcionarios, ferias, pendencias, hojeIso]);
+
+  const filtrados = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+    if (!termo) return gestores;
+    return gestores.filter((g) => g.gestor.nome.toLowerCase().includes(termo));
+  }, [gestores, busca]);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Gestores</h1>
-          <p className="text-sm text-muted-foreground">{data.length} gestores</p>
-        </div>
-        <Button onClick={openNew}><Plus className="h-4 w-4 mr-1" /> Novo Gestor</Button>
-      </div>
+    <div className="space-y-5">
+      <CabecalhoPagina
+        titulo="Gestores"
+        descricao="Quem lidera cada equipe, com o time e a fila de aprovação de cada um."
+      />
 
       <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input placeholder="Buscar gestores..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          placeholder="Buscar gestores..."
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          className="pl-9"
+        />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map(g => (
-          <Card key={g.id}>
-            <CardHeader className="pb-2 flex flex-row items-start justify-between">
-              <div className="flex items-center gap-2">
-                <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center">
-                  <UserCog className="h-4 w-4 text-primary" />
+      {filtrados.length === 0 ? (
+        <Card className="shadow-card">
+          <EstadoVazio
+            icone={UserCog}
+            titulo="Nenhum gestor encontrado"
+            descricao="Defina o gestor de uma equipe na tela de Equipes."
+          />
+        </Card>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {filtrados.map(({ gestor, equipesDele, liderados, emFerias, fila }) => (
+            <Card key={gestor.id} className="shadow-card">
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-3">
+                  <Avatar nome={gestor.nome} tamanho="lg" />
+                  <div className="min-w-0">
+                    <CardTitle className="truncate text-base">{gestor.nome}</CardTitle>
+                    <p className="truncate text-xs text-muted-foreground">{gestor.cargo}</p>
+                    <p className="truncate text-[11px] text-muted-foreground/80">{gestor.email}</p>
+                  </div>
                 </div>
-                <div>
-                  <CardTitle className="text-base">{g.nome}</CardTitle>
-                  <p className="text-xs text-muted-foreground">{g.email}</p>
-                </div>
-              </div>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(g)}>
-                <Pencil className="h-3 w-3" />
-              </Button>
-            </CardHeader>
-            <CardContent>
-              <p className="text-xs text-muted-foreground mb-2">Equipes gerenciadas:</p>
-              <div className="flex flex-wrap gap-1">
-                {g.equipe_ids.map(eqId => {
-                  const eq = equipes.find(e => e.id === eqId);
-                  return <Badge key={eqId} variant="outline" className="text-xs">{eq?.nome || eqId}</Badge>;
-                })}
-                {g.equipe_ids.length === 0 && <span className="text-xs text-muted-foreground">Nenhuma equipe vinculada</span>}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+              </CardHeader>
 
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent>
-          <SheetHeader><SheetTitle>{isNew ? 'Novo Gestor' : 'Editar Gestor'}</SheetTitle></SheetHeader>
-          {editing && (
-            <div className="space-y-4 mt-6">
-              <div className="space-y-2"><Label>Nome</Label><Input value={editing.nome} onChange={e => setEditing({ ...editing, nome: e.target.value })} /></div>
-              <div className="space-y-2"><Label>E-mail</Label><Input value={editing.email} onChange={e => setEditing({ ...editing, email: e.target.value })} /></div>
-              <div className="space-y-2">
-                <Label>Equipes</Label>
-                <div className="space-y-2 border rounded-md p-3">
-                  {equipes.filter(e => e.ativo).map(eq => (
-                    <div key={eq.id} className="flex items-center gap-2">
-                      <Checkbox
-                        checked={editing.equipe_ids.includes(eq.id)}
-                        onCheckedChange={() => toggleEquipe(eq.id)}
-                      />
-                      <span className="text-sm">{eq.nome}</span>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  {[
+                    { rotulo: 'Liderados', valor: liderados.length },
+                    { rotulo: 'De férias', valor: emFerias },
+                    { rotulo: 'Na fila', valor: fila },
+                  ].map((c) => (
+                    <div key={c.rotulo} className="rounded-lg border py-2">
+                      <p className="tabular text-lg font-bold leading-none">{c.valor}</p>
+                      <p className="mt-1 text-[10px] text-muted-foreground">{c.rotulo}</p>
                     </div>
                   ))}
                 </div>
-              </div>
-              <Button onClick={save} className="w-full">Salvar</Button>
-            </div>
-          )}
-        </SheetContent>
-      </Sheet>
+
+                <Campo rotulo="Equipes">
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {equipesDele.map((e) => {
+                      const cliente = clientes.find((c) => c.id === e.cliente_id);
+                      return (
+                        <BadgeStatus
+                          key={e.id}
+                          texto={cliente ? `${e.nome} · ${cliente.nome}` : e.nome}
+                          classe="bg-primary/10 text-primary border-primary/25"
+                          className="text-[10px]"
+                        />
+                      );
+                    })}
+                  </div>
+                </Campo>
+
+                <Campo rotulo="Tempo de casa">{formatarTempoDeCasa(gestor.data_admissao)}</Campo>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

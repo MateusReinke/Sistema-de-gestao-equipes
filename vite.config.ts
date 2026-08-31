@@ -17,4 +17,16 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Separa as dependências pesadas do código do app: elas mudam pouco,
+        // então o navegador reaproveita o cache entre deploys.
+        manualChunks: {
+          react: ["react", "react-dom", "react-router-dom"],
+          charts: ["recharts"],
+        },
+      },
+    },
+  },
 }));
