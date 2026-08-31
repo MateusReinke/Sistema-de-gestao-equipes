@@ -125,13 +125,29 @@ descarta a cópia local e recarrega o seed.
 
 ## Identidade visual
 
-A marca são os quatro círculos translúcidos da Lumini
-(`public/logo-mark.svg`), e as cores do tema derivam deles.
+Calcada em [luminiitsolutions.com](https://luminiitsolutions.com):
+
+| Elemento | Valor |
+| --- | --- |
+| Navy da marca | `#0B1B3D` — fundo do hero, barra lateral nos dois temas |
+| Âmbar de ação | `#FBB03B` — botões, foco, selos e destaques |
+| Azul de apoio | `#2B7FD4` — acentos e informação |
+| Botões | Pílula (`rounded-full`), como no site |
+| Títulos | Poppins; corpo em Inter, melhor para tabela densa |
+| Marca | Círculos translúcidos + wordmark `lumini` em minúsculas |
+
+Uma diferença deliberada: o site usa texto **branco** sobre o âmbar, o que dá
+pouco mais de 2:1 de contraste. Num sistema usado o dia inteiro isso cansa,
+então os botões aqui usam texto **navy** sobre o âmbar — mais de 7:1, sem sair
+da identidade.
 
 Toda a paleta está em **um lugar só**: o bloco `@layer base` de
 `src/index.css`. Trocar os valores de `--brand-*` e das cores semânticas
 reveste a aplicação inteira, clara e escura, sem tocar em componente nenhum.
 `tailwind.config.ts` apenas aponta para essas variáveis.
+
+As cores foram lidas de uma captura do site, então podem estar a um tom do
+valor exato — se tiver o CSS ou o guia de marca, é só ajustar essas variáveis.
 
 Os ícones (`favicon.ico` multi-resolução, `apple-touch-icon.png`,
 `og-image.png`) são gerados a partir do SVG com `npm run icons`.

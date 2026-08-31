@@ -48,10 +48,9 @@ export function Logo({ className, somenteMarca = false, tamanho = 'md' }: LogoPr
       <LogoMarca className={t.marca} />
       {!somenteMarca && (
         <div className="leading-none">
-          <p className={cn('font-display font-extrabold tracking-tight', t.nome)}>Lumini</p>
-          <p className={cn('mt-1 font-semibold uppercase text-brand-orange', t.sub)}>
-            IT Solutions
-          </p>
+          {/* Como no site: wordmark em minúsculas e assinatura logo abaixo. */}
+          <p className={cn('font-display font-bold lowercase tracking-tight', t.nome)}>lumini</p>
+          <p className={cn('mt-1 font-semibold uppercase opacity-70', t.sub)}>IT Solutions</p>
         </div>
       )}
     </div>

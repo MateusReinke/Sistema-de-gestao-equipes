@@ -19,7 +19,7 @@ export default {
     extend: {
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
-        display: ['Plus Jakarta Sans', 'Inter', 'system-ui', 'sans-serif'],
+        display: ['Poppins', 'Inter', 'system-ui', 'sans-serif'],
       },
       colors: {
         border: 'hsl(var(--border))',
@@ -29,11 +29,13 @@ export default {
         foreground: 'hsl(var(--foreground))',
 
         brand: {
+          navy: 'hsl(var(--brand-navy))',
+          'navy-deep': 'hsl(var(--brand-navy-deep))',
+          amber: 'hsl(var(--brand-amber))',
+          blue: 'hsl(var(--brand-blue))',
           orange: 'hsl(var(--brand-orange))',
           coral: 'hsl(var(--brand-coral))',
           gold: 'hsl(var(--brand-gold))',
-          blue: 'hsl(var(--brand-blue))',
-          ink: 'hsl(var(--brand-ink))',
         },
 
         primary: {

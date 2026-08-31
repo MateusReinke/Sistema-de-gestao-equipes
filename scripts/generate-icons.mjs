@@ -8,9 +8,9 @@
  *   public/apple-touch-icon.png (180x180, fundo sólido — iOS não lida bem com alpha)
  *   public/og-image.png       (1200x630, cartão de compartilhamento)
  *
- * Requer o Chromium do Playwright. O blend "multiply" da marca só rende
- * corretamente num motor de renderização real, por isso rasterizamos aqui em
- * vez de usar uma conversão SVG->PNG puramente vetorial.
+ * Rasteriza com o Chromium do Playwright em vez de uma conversão SVG->PNG
+ * vetorial, para que a sobreposição translúcida dos círculos saia igual à que
+ * o navegador desenha na aplicação.
  */
 import { chromium } from 'playwright';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -21,12 +21,13 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pub = (p) => resolve(root, 'public', p);
 
 const markSvg = readFileSync(pub('logo-mark.svg'), 'utf8');
-const INK = '#0B1220';
+// Navy do cabeçalho do site — fundo dos ícones e do cartão social.
+const NAVY = '#0B1B3D';
 
 /** Envolve um markup numa página de tamanho exato, sem margens. */
 const page = (w, h, body, bg = 'transparent') => `<!doctype html>
 <html><head><meta charset="utf-8"><style>
-  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;800&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@600;800&display=swap');
   *{margin:0;padding:0;box-sizing:border-box}
   html,body{width:${w}px;height:${h}px;background:${bg};overflow:hidden}
   body{display:flex;align-items:center;justify-content:center}
@@ -90,7 +91,7 @@ try {
     page(
       180,
       180,
-      `<div style="width:180px;height:180px;background:${INK};display:flex;align-items:center;justify-content:center">
+      `<div style="width:180px;height:180px;background:${NAVY};display:flex;align-items:center;justify-content:center">
          ${markSvg.replace('width="64" height="64"', 'width="132" height="132"')}
        </div>`,
     ),
@@ -107,16 +108,16 @@ try {
       1200,
       630,
       `<div style="width:1200px;height:630px;background:
-          radial-gradient(900px 520px at 78% 12%, rgba(240,135,58,.22), transparent 62%),
-          radial-gradient(720px 460px at 12% 92%, rgba(46,155,212,.20), transparent 60%),
-          ${INK};
+          radial-gradient(900px 520px at 78% 12%, rgba(251,176,59,.24), transparent 62%),
+          radial-gradient(720px 460px at 12% 92%, rgba(43,127,212,.30), transparent 60%),
+          ${NAVY};
         display:flex;flex-direction:column;justify-content:center;gap:34px;padding:0 92px;
-        font-family:'Plus Jakarta Sans',system-ui,sans-serif;color:#fff">
+        font-family:'Poppins',system-ui,sans-serif;color:#fff">
          <div style="display:flex;align-items:center;gap:26px">
            ${markSvg.replace('width="64" height="64"', 'width="104" height="104"')}
            <div>
-             <div style="font-size:54px;font-weight:800;letter-spacing:-1.5px;line-height:1">Lumini</div>
-             <div style="font-size:17px;font-weight:600;letter-spacing:7px;color:#F0873A;margin-top:8px">IT SOLUTIONS</div>
+             <div style="font-size:54px;font-weight:700;letter-spacing:-1.5px;line-height:1">lumini</div>
+             <div style="font-size:17px;font-weight:600;letter-spacing:7px;color:#FBB03B;margin-top:8px">IT SOLUTIONS</div>
            </div>
          </div>
          <div>

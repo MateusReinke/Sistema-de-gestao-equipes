@@ -1,15 +1,18 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 /**
- * Identidade Lumini IT Solutions.
+ * Identidade Lumini IT Solutions, calcada em luminiitsolutions.com.
  *
- * As quatro cores da marca vêm dos círculos sobrepostos da logo. Todo o resto
- * do tema é derivado delas — trocar os valores de `--brand-*` e das cores
- * semânticas abaixo reveste o app inteiro sem tocar em componente nenhum.
+ * Os três pilares do site: fundo navy azulado saturado, amarelo-âmbar como
+ * única cor de ação e tipografia geométrica nos títulos. Os tons dos círculos
+ * da logo entram como paleta de apoio em gráficos e categorias.
+ *
+ * As cores foram lidas de uma captura do site, então podem estar a um tom de
+ * distância do valor exato — ajustar `--brand-*` aqui reveste o app inteiro.
  *
  * Cada cor semântica tem três papéis:
  *   --x            cor cheia (fundo de botão, preenchimento de gráfico)
@@ -18,117 +21,125 @@
  */
 @layer base {
   :root {
-    /* Cores da marca, extraídas da logo. */
+    /* Marca. */
+    --brand-navy: 221 69% 14%;
+    --brand-navy-deep: 219 74% 8%;
+    --brand-amber: 37 96% 61%;
+    --brand-blue: 211 66% 50%;
+    /* Tons dos círculos da logo, usados como paleta categórica. */
     --brand-orange: 26 86% 58%;
     --brand-coral: 8 78% 58%;
     --brand-gold: 42 96% 56%;
-    --brand-blue: 199 68% 51%;
-    --brand-ink: 222 44% 10%;
 
-    --background: 40 20% 97%;
-    --foreground: 222 42% 12%;
+    --background: 210 24% 97%;
+    --foreground: 221 60% 13%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222 42% 12%;
+    --card-foreground: 221 60% 13%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222 42% 12%;
+    --popover-foreground: 221 60% 13%;
 
-    --primary: 26 86% 52%;
-    --primary-foreground: 0 0% 100%;
+    /*
+     * O site usa texto branco sobre o âmbar, o que dá pouco mais de 2:1. Num
+     * sistema usado o dia inteiro isso cansa, então invertemos: âmbar da marca
+     * com texto navy, que passa de 7:1 sem sair da identidade.
+     */
+    --primary: 37 96% 55%;
+    --primary-foreground: 221 69% 12%;
 
-    --secondary: 36 22% 93%;
-    --secondary-foreground: 222 42% 12%;
+    --secondary: 210 22% 93%;
+    --secondary-foreground: 221 60% 13%;
 
-    --muted: 36 20% 94%;
-    --muted-foreground: 222 12% 42%;
+    --muted: 210 22% 94%;
+    --muted-foreground: 218 16% 42%;
 
-    --accent: 26 80% 95%;
-    --accent-foreground: 26 86% 32%;
+    --accent: 37 88% 94%;
+    --accent-foreground: 30 78% 28%;
 
-    --destructive: 8 74% 52%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
-    --destructive-strong: 8 74% 42%;
+    --destructive-strong: 0 72% 42%;
 
-    --success: 160 76% 36%;
+    --success: 160 76% 34%;
     --success-foreground: 0 0% 100%;
-    --success-strong: 160 80% 26%;
+    --success-strong: 160 80% 25%;
 
-    --warning: 38 94% 48%;
-    --warning-foreground: 222 42% 12%;
-    --warning-strong: 30 90% 34%;
+    --warning: 37 96% 50%;
+    --warning-foreground: 221 69% 12%;
+    --warning-strong: 30 88% 33%;
 
-    --info: 199 68% 46%;
+    --info: 211 66% 47%;
     --info-foreground: 0 0% 100%;
-    --info-strong: 202 78% 34%;
+    --info-strong: 213 74% 36%;
 
-    --border: 34 16% 88%;
-    --input: 34 16% 86%;
-    --ring: 26 86% 52%;
+    --border: 214 20% 88%;
+    --input: 214 20% 86%;
+    --ring: 37 96% 55%;
 
     --radius: 0.75rem;
 
-    /* A barra lateral é sempre escura, nos dois temas — é a âncora da marca. */
-    --sidebar-background: 222 44% 10%;
-    --sidebar-foreground: 214 18% 80%;
-    --sidebar-primary: 26 86% 58%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 222 38% 16%;
+    /* A barra lateral repete o navy do cabeçalho do site nos dois temas. */
+    --sidebar-background: 221 69% 14%;
+    --sidebar-foreground: 213 24% 82%;
+    --sidebar-primary: 37 96% 61%;
+    --sidebar-primary-foreground: 221 69% 12%;
+    --sidebar-accent: 220 55% 20%;
     --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 222 34% 18%;
-    --sidebar-ring: 26 86% 58%;
+    --sidebar-border: 220 48% 22%;
+    --sidebar-ring: 37 96% 61%;
   }
 
   .dark {
-    --background: 222 42% 7%;
-    --foreground: 213 20% 92%;
+    --background: 221 60% 8%;
+    --foreground: 213 26% 92%;
 
-    --card: 222 40% 10%;
-    --card-foreground: 213 20% 92%;
+    --card: 221 52% 11%;
+    --card-foreground: 213 26% 92%;
 
-    --popover: 222 40% 11%;
-    --popover-foreground: 213 20% 92%;
+    --popover: 221 52% 12%;
+    --popover-foreground: 213 26% 92%;
 
-    --primary: 26 88% 58%;
-    --primary-foreground: 222 44% 8%;
+    --primary: 37 96% 61%;
+    --primary-foreground: 221 69% 10%;
 
-    --secondary: 222 34% 16%;
-    --secondary-foreground: 213 20% 92%;
+    --secondary: 220 40% 17%;
+    --secondary-foreground: 213 26% 92%;
 
-    --muted: 222 32% 15%;
-    --muted-foreground: 215 16% 62%;
+    --muted: 220 38% 16%;
+    --muted-foreground: 214 18% 64%;
 
-    --accent: 222 34% 18%;
-    --accent-foreground: 26 88% 62%;
+    --accent: 220 42% 19%;
+    --accent-foreground: 37 96% 64%;
 
-    --destructive: 8 74% 58%;
-    --destructive-foreground: 222 44% 8%;
-    --destructive-strong: 8 84% 70%;
+    --destructive: 0 72% 60%;
+    --destructive-foreground: 221 60% 9%;
+    --destructive-strong: 0 84% 72%;
 
-    --success: 160 66% 42%;
-    --success-foreground: 222 44% 8%;
-    --success-strong: 158 68% 58%;
+    --success: 160 62% 44%;
+    --success-foreground: 221 60% 9%;
+    --success-strong: 158 66% 60%;
 
-    --warning: 38 92% 55%;
-    --warning-foreground: 222 44% 8%;
-    --warning-strong: 40 94% 65%;
+    --warning: 37 96% 60%;
+    --warning-foreground: 221 60% 9%;
+    --warning-strong: 40 94% 66%;
 
-    --info: 199 70% 54%;
-    --info-foreground: 222 44% 8%;
-    --info-strong: 199 84% 68%;
+    --info: 211 70% 58%;
+    --info-foreground: 221 60% 9%;
+    --info-strong: 211 84% 70%;
 
-    --border: 222 30% 18%;
-    --input: 222 30% 20%;
-    --ring: 26 88% 58%;
+    --border: 220 36% 20%;
+    --input: 220 36% 22%;
+    --ring: 37 96% 61%;
 
-    --sidebar-background: 222 46% 6%;
-    --sidebar-foreground: 214 18% 78%;
-    --sidebar-primary: 26 88% 58%;
-    --sidebar-primary-foreground: 222 44% 8%;
-    --sidebar-accent: 222 36% 13%;
+    --sidebar-background: 219 74% 8%;
+    --sidebar-foreground: 213 24% 80%;
+    --sidebar-primary: 37 96% 61%;
+    --sidebar-primary-foreground: 221 69% 10%;
+    --sidebar-accent: 220 50% 15%;
     --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 222 32% 14%;
-    --sidebar-ring: 26 88% 58%;
+    --sidebar-border: 220 44% 16%;
+    --sidebar-ring: 37 96% 61%;
   }
 }
 
@@ -143,11 +154,12 @@
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
   }
 
+  /* Títulos na geométrica do site; corpo em Inter, melhor para tabela densa. */
   h1,
   h2,
   h3 {
-    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
-    letter-spacing: -0.02em;
+    font-family: 'Poppins', 'Inter', system-ui, sans-serif;
+    letter-spacing: -0.015em;
   }
 
   /* Números tabulares em métricas e horários evitam o texto "dançar". */
@@ -171,20 +183,28 @@
 }
 
 @layer components {
-  /* Fundo com o brilho das cores da marca — usado no login e em vazios. */
+  /* Fundo navy com o brilho azul do hero do site. */
+  .brand-hero {
+    background-color: hsl(var(--brand-navy));
+    background-image:
+      radial-gradient(52rem 34rem at 50% -12%, hsl(var(--brand-blue) / 0.32), transparent 66%),
+      radial-gradient(40rem 26rem at 88% 108%, hsl(var(--brand-blue) / 0.18), transparent 62%);
+  }
+
+  /* Versão clara do mesmo brilho, para telas sobre fundo neutro. */
   .brand-glow {
     background-image:
-      radial-gradient(60rem 32rem at 78% -8%, hsl(var(--brand-orange) / 0.16), transparent 62%),
-      radial-gradient(46rem 30rem at 4% 104%, hsl(var(--brand-blue) / 0.14), transparent 60%);
+      radial-gradient(56rem 30rem at 82% -10%, hsl(var(--brand-amber) / 0.14), transparent 64%),
+      radial-gradient(44rem 28rem at 6% 106%, hsl(var(--brand-blue) / 0.12), transparent 62%);
   }
 
   .brand-gradient-text {
     @apply bg-clip-text text-transparent;
     background-image: linear-gradient(
       95deg,
-      hsl(var(--brand-orange)),
-      hsl(var(--brand-coral)) 55%,
-      hsl(var(--brand-gold))
+      hsl(var(--brand-amber)),
+      hsl(var(--brand-orange)) 60%,
+      hsl(var(--brand-coral))
     );
   }
 }

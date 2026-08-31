@@ -32,16 +32,17 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="brand-glow flex min-h-screen items-center justify-center bg-background p-4">
+    // Hero navy como o do site — é onde a marca aparece por inteiro.
+    <div className="brand-hero flex min-h-screen items-center justify-center p-4">
       <div className="w-full max-w-4xl">
-        <div className="grid gap-6 lg:grid-cols-[1.1fr_1fr] lg:gap-10">
+        <div className="grid gap-8 lg:grid-cols-[1.1fr_1fr] lg:gap-10">
           {/* Apresentação */}
-          <div className="flex flex-col justify-center">
+          <div className="flex flex-col justify-center text-white">
             <Logo tamanho="lg" />
-            <h1 className="mt-7 font-display text-3xl font-extrabold tracking-tight sm:text-4xl">
-              Central de <span className="brand-gradient-text">Gestão de Pessoas</span>
+            <h1 className="mt-7 font-display text-3xl font-bold tracking-tight sm:text-4xl">
+              Central de <span className="text-brand-amber">Gestão de Pessoas</span>
             </h1>
-            <p className="mt-3 max-w-md text-sm leading-relaxed text-muted-foreground">
+            <p className="mt-3 max-w-md text-sm leading-relaxed text-white/70">
               Funcionários, equipes, escalas e plantões, férias, ausências e solicitações de acesso
               num só lugar — com as regras da CLT verificadas antes de cada aprovação.
             </p>
@@ -53,8 +54,8 @@ export default function LoginPage() {
                 'Fila única de aprovação para os quatro fluxos de solicitação',
                 'Trilha de auditoria de toda alteração',
               ].map((item) => (
-                <li key={item} className="flex items-start gap-2 text-sm text-muted-foreground">
-                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                <li key={item} className="flex items-start gap-2 text-sm text-white/70">
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-brand-amber" />
                   {item}
                 </li>
               ))}
