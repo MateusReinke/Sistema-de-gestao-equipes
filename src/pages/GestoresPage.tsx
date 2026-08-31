@@ -14,7 +14,7 @@ import { hoje } from '@/lib/date';
  * podiam divergir do cadastro de funcionário sem que nada acusasse.
  */
 export default function GestoresPage() {
-  const { equipes, funcionarios, ferias, clientes } = useDados();
+  const { equipes, funcionarios, ferias, clientes, atendimentoEquipes } = useDados();
   const { todas: pendencias } = usePendencias();
   const [busca, setBusca] = useState('');
   const hojeIso = hoje();
@@ -110,11 +110,14 @@ export default function GestoresPage() {
                 <Campo rotulo="Equipes">
                   <div className="mt-1 flex flex-wrap gap-1">
                     {equipesDele.map((e) => {
-                      const cliente = clientes.find((c) => c.id === e.cliente_id);
+                      const contas = atendimentoEquipes
+                        .filter((a) => a.equipe_id === e.id)
+                        .map((a) => clientes.find((c) => c.id === a.cliente_id)?.nome)
+                        .filter(Boolean);
                       return (
                         <BadgeStatus
                           key={e.id}
-                          texto={cliente ? `${e.nome} · ${cliente.nome}` : e.nome}
+                          texto={contas.length > 0 ? `${e.nome} · ${contas.join(', ')}` : e.nome}
                           classe="bg-primary/10 text-primary border-primary/25"
                           className="text-[10px]"
                         />

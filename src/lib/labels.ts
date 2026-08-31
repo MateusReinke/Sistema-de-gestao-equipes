@@ -6,8 +6,12 @@
  */
 import type {
   CategoriaComunicado,
+  CategoriaServico,
   CategoriaSistema,
   ModeloTrabalho,
+  RegimeAtendimento,
+  StatusContrato,
+  TipoContato,
   NivelAcesso,
   StatusFuncionario,
   StatusPlantao,
@@ -118,6 +122,72 @@ export const CATEGORIA_COMUNICADO: Record<CategoriaComunicado, string> = {
   evento: 'Evento',
   urgente: 'Urgente',
 };
+
+export const STATUS_CONTRATO: Record<StatusContrato, string> = {
+  ativo: 'Vigente',
+  em_renovacao: 'Em renovação',
+  suspenso: 'Suspenso',
+  encerrado: 'Encerrado',
+};
+
+export const REGIME_ATENDIMENTO: Record<RegimeAtendimento, string> = {
+  '24x7': '24×7',
+  '12x5': '12×5',
+  '8x5': '8×5 (comercial)',
+  sob_demanda: 'Sob demanda',
+};
+
+export const TIPO_CONTATO: Record<TipoContato, string> = {
+  principal: 'Principal',
+  tecnico: 'Técnico',
+  financeiro: 'Financeiro',
+  executivo: 'Executivo',
+};
+
+export const CATEGORIA_SERVICO: Record<CategoriaServico, string> = {
+  suporte: 'Suporte',
+  infraestrutura: 'Infraestrutura',
+  monitoramento: 'Monitoramento',
+  desenvolvimento: 'Desenvolvimento',
+  field_service: 'Field Service',
+  consultoria: 'Consultoria',
+};
+
+export const CLASSE_STATUS_CONTRATO: Record<StatusContrato, string> = {
+  ativo: 'bg-success/15 text-success-strong border-success/30',
+  em_renovacao: 'bg-warning/15 text-warning-strong border-warning/30',
+  suspenso: 'bg-destructive/15 text-destructive border-destructive/30',
+  encerrado: 'bg-muted text-muted-foreground border-border',
+};
+
+export const CLASSE_TIPO_CONTATO: Record<TipoContato, string> = {
+  principal: 'bg-primary/15 text-primary border-primary/30',
+  tecnico: 'bg-info/15 text-info-strong border-info/30',
+  financeiro: 'bg-success/15 text-success-strong border-success/30',
+  executivo: 'bg-brand-coral/15 text-brand-coral border-brand-coral/30',
+};
+
+/** Cores das faixas de NPS: detrator vermelho, neutro âmbar, promotor verde. */
+export const CLASSE_NPS: Record<'detrator' | 'neutro' | 'promotor', string> = {
+  detrator: 'bg-destructive/15 text-destructive border-destructive/30',
+  neutro: 'bg-warning/15 text-warning-strong border-warning/30',
+  promotor: 'bg-success/15 text-success-strong border-success/30',
+};
+
+export const ROTULO_NPS: Record<'detrator' | 'neutro' | 'promotor', string> = {
+  detrator: 'Detrator',
+  neutro: 'Neutro',
+  promotor: 'Promotor',
+};
+
+/** Reais sem centavos — os valores de contrato aqui são sempre cheios. */
+export function formatarMoeda(valor: number): string {
+  return valor.toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    maximumFractionDigits: 0,
+  });
+}
 
 export const PAPEL: Record<UserRole, string> = {
   admin: 'Administrador',

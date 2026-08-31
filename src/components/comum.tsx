@@ -8,6 +8,7 @@ import React from 'react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
 import { iniciais } from '@/lib/labels';
 import type { LucideIcon } from 'lucide-react';
 
@@ -169,6 +170,34 @@ export function EstadoVazio({
         {descricao && <p className="mt-1 text-sm text-muted-foreground">{descricao}</p>}
       </div>
       {acao}
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------- campo de form */
+
+/**
+ * Rótulo ligado ao controle por `id` gerado.
+ *
+ * Escrever `<Label>` e `<Input>` como irmãos não os associa: clicar no rótulo
+ * não foca o campo e leitores de tela não sabem a que ele se refere. Aqui o id
+ * vem de `useId` e é entregue ao controle pelo render prop.
+ */
+export function CampoForm({
+  rotulo,
+  dica,
+  children,
+}: {
+  rotulo: string;
+  dica?: string;
+  children: (id: string) => React.ReactNode;
+}) {
+  const id = React.useId();
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id}>{rotulo}</Label>
+      {children(id)}
+      {dica && <p className="text-[11px] text-muted-foreground">{dica}</p>}
     </div>
   );
 }

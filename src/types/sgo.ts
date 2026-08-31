@@ -39,21 +39,147 @@ export interface Departamento {
   responsavel_id?: string;
 }
 
+/* ---------------------------------------------------------------- clientes */
+
+export type StatusContrato = 'ativo' | 'em_renovacao' | 'suspenso' | 'encerrado';
+
+/** Janela de atendimento contratada. */
+export type RegimeAtendimento = '24x7' | '12x5' | '8x5' | 'sob_demanda';
+
 export interface Cliente {
   id: string;
   nome: string;
+  razao_social: string;
+  cnpj: string;
   id_whatsapp: string;
-  /** Contato e caminho de escalonamento acordado com o cliente. */
-  escalation: string;
-  responsavel_interno_id: string;
+  segmento: string;
+
+  /**
+   * Profissional responsável pela satisfação da conta — o ponto único de
+   * relacionamento, distinto de quem responde tecnicamente.
+   */
+  gerente_conta_id: string;
+  responsavel_tecnico_id?: string;
+
+  /* ---------------------------------------------------------- contrato */
+  contrato_numero: string;
+  contrato_inicio: IsoDate;
+  /** Data de renovação/término da vigência atual. */
+  contrato_fim: IsoDate;
+  renovacao_automatica: boolean;
+  /**
+   * Antecedência contratual para avisar não-renovação. Passar dessa data sem
+   * decisão significa renovar por omissão.
+   */
+  aviso_previa_dias: number;
+  valor_mensal: number;
+  status_contrato: StatusContrato;
+
+  /* ------------------------------------------------------------- SLA */
+  regime: RegimeAtendimento;
   sla_resposta_min: number;
+  sla_resolucao_horas: number;
+
   ativo: boolean;
+}
+
+export type TipoContato = 'principal' | 'tecnico' | 'financeiro' | 'executivo';
+
+/** Pessoa do lado do cliente. */
+export interface ContatoCliente {
+  id: string;
+  cliente_id: string;
+  nome: string;
+  cargo: string;
+  email: string;
+  telefone: string;
+  tipo: TipoContato;
+  /** Contato padrão para abertura e retorno de chamados. */
+  principal: boolean;
+  observacao?: string;
+}
+
+/**
+ * Um degrau do caminho de escalonamento acordado com o cliente.
+ *
+ * Antes isso era um campo de texto livre no cadastro, o que impedia saber a
+ * quem recorrer e em quanto tempo. Cada cliente monta os próprios níveis.
+ */
+export interface NivelEscalonamento {
+  id: string;
+  cliente_id: string;
+  /** 1 é o primeiro acionamento; níveis maiores são acionados depois. */
+  nivel: number;
+  titulo: string;
+  /** Tempo sem solução até acionar o próximo nível. */
+  prazo_minutos: number;
+  /** Quem responde pela Lumini neste degrau. */
+  responsavel_interno_id?: string;
+  /** Quem é avisado do lado do cliente. */
+  contato_cliente_id?: string;
+  canal: string;
+  instrucoes: string;
+}
+
+export type CategoriaServico =
+  | 'suporte'
+  | 'infraestrutura'
+  | 'monitoramento'
+  | 'desenvolvimento'
+  | 'field_service'
+  | 'consultoria';
+
+/** Catálogo de serviços que a Lumini presta. */
+export interface Servico {
+  id: string;
+  nome: string;
+  categoria: CategoriaServico;
+  descricao: string;
+  ativo: boolean;
+}
+
+/** Serviço efetivamente contratado por um cliente. */
+export interface ServicoContratado {
+  id: string;
+  cliente_id: string;
+  servico_id: string;
+  regime: RegimeAtendimento;
+  /** Volume contratado — postos, hosts, licenças, chamados/mês. */
+  quantidade: number;
+  unidade: string;
+  observacao?: string;
+}
+
+/**
+ * Vínculo cliente ↔ equipe.
+ *
+ * É N:N porque uma equipe como o NOC 24×7 atende várias contas ao mesmo tempo,
+ * e uma conta costuma ser servida por mais de uma equipe.
+ */
+export interface AtendimentoEquipe {
+  id: string;
+  cliente_id: string;
+  equipe_id: string;
+  /** O que essa equipe cobre nesta conta especificamente. */
+  escopo: string;
+  /** Equipe de frente, acionada primeiro. */
+  principal: boolean;
+}
+
+/** Medição periódica de satisfação, registrada pelo gerente de conta. */
+export interface AvaliacaoCliente {
+  id: string;
+  cliente_id: string;
+  data: IsoDate;
+  /** Nota NPS de 0 a 10. */
+  nota: number;
+  registrado_por: string;
+  comentario: string;
 }
 
 export interface Equipe {
   id: string;
   nome: string;
-  cliente_id?: string;
   /** Gestor da equipe — é um funcionário, não um cadastro à parte. */
   gestor_id?: string;
   departamento_id?: string;

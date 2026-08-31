@@ -20,6 +20,7 @@ export default function EquipesPage() {
     equipes,
     funcionarios,
     clientes,
+    atendimentoEquipes,
     departamentos,
     plantoes,
     ferias,
@@ -109,7 +110,12 @@ export default function EquipesPage() {
             const membros = funcionarios.filter(
               (f) => f.equipe_id === eq.id && f.status !== 'desligado',
             );
-            const cliente = clientes.find((c) => c.id === eq.cliente_id);
+            // Uma equipe pode atender várias contas — o vínculo vive em
+            // atendimentoEquipes e é gerido pela ficha do cliente.
+            const contasAtendidas = atendimentoEquipes
+              .filter((a) => a.equipe_id === eq.id)
+              .map((a) => clientes.find((c) => c.id === a.cliente_id))
+              .filter((c): c is NonNullable<typeof c> => c !== undefined);
             const gestor = funcionarios.find((f) => f.id === eq.gestor_id);
             const departamento = departamentos.find((d) => d.id === eq.departamento_id);
             const emFerias = membros.filter((m) =>
@@ -129,7 +135,7 @@ export default function EquipesPage() {
                   <div className="min-w-0">
                     <CardTitle className="truncate text-base">{eq.nome}</CardTitle>
                     <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                      {[departamento?.nome, cliente?.nome].filter(Boolean).join(' · ') || 'Sem vínculo'}
+                      {departamento?.nome ?? 'Sem departamento'}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
@@ -176,6 +182,26 @@ export default function EquipesPage() {
                         <p className="mt-1 text-[10px] text-muted-foreground">{c.rotulo}</p>
                       </div>
                     ))}
+                  </div>
+
+                  <div>
+                    <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Contas atendidas
+                    </p>
+                    {contasAtendidas.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">Equipe interna</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {contasAtendidas.map((c) => (
+                          <BadgeStatus
+                            key={c.id}
+                            texto={c.nome}
+                            classe="bg-primary/10 text-primary border-primary/25"
+                            className="text-[10px]"
+                          />
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <div>
@@ -247,21 +273,10 @@ export default function EquipesPage() {
                 </Select>
               </div>
 
-              <div className="space-y-1.5">
-                <Label>Cliente atendido</Label>
-                <Select
-                  value={emEdicao.cliente_id ?? 'nenhum'}
-                  onValueChange={(v) =>
-                    setEmEdicao({ ...emEdicao, cliente_id: v === 'nenhum' ? undefined : v })
-                  }
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="nenhum">Equipe interna</SelectItem>
-                    {clientes.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
+              <Aviso tom="info">
+                As contas atendidas por esta equipe são definidas na ficha de cada cliente, em
+                Clientes → Operação — assim uma equipe pode servir várias contas.
+              </Aviso>
 
               <div className="space-y-1.5">
                 <Label>Gestor</Label>

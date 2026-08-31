@@ -7,9 +7,12 @@
  * estáveis entre recargas.
  */
 import type {
+  AtendimentoEquipe,
   Ausencia,
+  AvaliacaoCliente,
   Cliente,
   Comunicado,
+  ContatoCliente,
   Departamento,
   Equipe,
   Escala,
@@ -17,7 +20,10 @@ import type {
   EscalaFuncionario,
   Ferias,
   Funcionario,
+  NivelEscalonamento,
   Plantao,
+  Servico,
+  ServicoContratado,
   Sistema,
   SolicitacaoAcesso,
   TrocaPlantao,
@@ -45,21 +51,132 @@ export const departamentos: Departamento[] = [
 ];
 
 export const clientes: Cliente[] = [
-  { id: 'c1', nome: 'TechCorp S.A.', id_whatsapp: '5511990000001', escalation: 'João Pedro — Gerente de TI', responsavel_interno_id: 'f03', sla_resposta_min: 15, ativo: true },
-  { id: 'c2', nome: 'FinBank Ltda.', id_whatsapp: '5511990000002', escalation: 'Maria Clara — Diretoria', responsavel_interno_id: 'f06', sla_resposta_min: 10, ativo: true },
-  { id: 'c3', nome: 'LogiTrans Transportes', id_whatsapp: '5511990000003', escalation: 'Roberto Dias — Coordenação', responsavel_interno_id: 'f10', sla_resposta_min: 30, ativo: true },
-  { id: 'c4', nome: 'EduPlus Educação', id_whatsapp: '5511990000004', escalation: 'Patrícia Nunes — Coordenação', responsavel_interno_id: 'f13', sla_resposta_min: 60, ativo: true },
-  { id: 'c5', nome: 'HealthNet Clínicas', id_whatsapp: '5511990000005', escalation: 'Dr. Alberto — Diretor', responsavel_interno_id: 'f05', sla_resposta_min: 10, ativo: false },
+  {
+    id: 'c1', nome: 'TechCorp S.A.', razao_social: 'TechCorp Sistemas S.A.', cnpj: '12.345.678/0001-90',
+    id_whatsapp: '5511990000001', segmento: 'Tecnologia',
+    gerente_conta_id: 'f16', responsavel_tecnico_id: 'f02',
+    contrato_numero: 'CT-2023-014', contrato_inicio: '2023-09-01', contrato_fim: dia(38),
+    renovacao_automatica: true, aviso_previa_dias: 60, valor_mensal: 48_000,
+    status_contrato: 'em_renovacao', regime: '24x7', sla_resposta_min: 15, sla_resolucao_horas: 4, ativo: true,
+  },
+  {
+    id: 'c2', nome: 'FinBank Ltda.', razao_social: 'FinBank Serviços Financeiros Ltda.', cnpj: '23.456.789/0001-01',
+    id_whatsapp: '5511990000002', segmento: 'Financeiro',
+    gerente_conta_id: 'f16', responsavel_tecnico_id: 'f05',
+    contrato_numero: 'CT-2024-003', contrato_inicio: '2024-02-01', contrato_fim: dia(214),
+    renovacao_automatica: false, aviso_previa_dias: 90, valor_mensal: 72_500,
+    status_contrato: 'ativo', regime: '24x7', sla_resposta_min: 10, sla_resolucao_horas: 2, ativo: true,
+  },
+  {
+    id: 'c3', nome: 'LogiTrans Transportes', razao_social: 'LogiTrans Logística e Transportes Ltda.', cnpj: '34.567.890/0001-12',
+    id_whatsapp: '5511990000003', segmento: 'Logística',
+    gerente_conta_id: 'f01', responsavel_tecnico_id: 'f10',
+    contrato_numero: 'CT-2022-021', contrato_inicio: '2022-11-15', contrato_fim: dia(-6),
+    renovacao_automatica: false, aviso_previa_dias: 30, valor_mensal: 31_200,
+    status_contrato: 'ativo', regime: '12x5', sla_resposta_min: 30, sla_resolucao_horas: 8, ativo: true,
+  },
+  {
+    id: 'c4', nome: 'EduPlus Educação', razao_social: 'EduPlus Educação Digital S.A.', cnpj: '45.678.901/0001-23',
+    id_whatsapp: '5511990000004', segmento: 'Educação',
+    gerente_conta_id: 'f16', responsavel_tecnico_id: 'f13',
+    contrato_numero: 'CT-2025-008', contrato_inicio: '2025-04-01', contrato_fim: dia(430),
+    renovacao_automatica: true, aviso_previa_dias: 60, valor_mensal: 18_900,
+    status_contrato: 'ativo', regime: '8x5', sla_resposta_min: 60, sla_resolucao_horas: 24, ativo: true,
+  },
+  {
+    id: 'c5', nome: 'HealthNet Clínicas', razao_social: 'HealthNet Serviços Médicos Ltda.', cnpj: '56.789.012/0001-34',
+    id_whatsapp: '5511990000005', segmento: 'Saúde',
+    gerente_conta_id: 'f01', responsavel_tecnico_id: 'f11',
+    contrato_numero: 'CT-2021-002', contrato_inicio: '2021-06-01', contrato_fim: '2025-05-31',
+    renovacao_automatica: false, aviso_previa_dias: 30, valor_mensal: 0,
+    status_contrato: 'encerrado', regime: 'sob_demanda', sla_resposta_min: 120, sla_resolucao_horas: 48, ativo: false,
+  },
+];
+
+export const contatosCliente: ContatoCliente[] = [
+  { id: 'ct01', cliente_id: 'c1', nome: 'João Pedro Almeida', cargo: 'Gerente de TI', email: 'joao.almeida@techcorp.com.br', telefone: '11 98800-1001', tipo: 'principal', principal: true },
+  { id: 'ct02', cliente_id: 'c1', nome: 'Renata Vasques', cargo: 'Coordenadora de Infra', email: 'renata.vasques@techcorp.com.br', telefone: '11 98800-1002', tipo: 'tecnico', principal: false },
+  { id: 'ct03', cliente_id: 'c1', nome: 'Sérgio Bittencourt', cargo: 'CFO', email: 'sergio.b@techcorp.com.br', telefone: '11 98800-1003', tipo: 'financeiro', principal: false, observacao: 'Aprova aditivos acima de R$ 20 mil.' },
+  { id: 'ct04', cliente_id: 'c2', nome: 'Maria Clara Ferraz', cargo: 'Diretora de Operações', email: 'mclara@finbank.com.br', telefone: '11 98800-2001', tipo: 'executivo', principal: true },
+  { id: 'ct05', cliente_id: 'c2', nome: 'Paulo Ivan', cargo: 'Head de Segurança', email: 'paulo.ivan@finbank.com.br', telefone: '11 98800-2002', tipo: 'tecnico', principal: false, observacao: 'Acionar em qualquer incidente com dado de cliente.' },
+  { id: 'ct06', cliente_id: 'c3', nome: 'Roberto Dias', cargo: 'Coordenador de TI', email: 'roberto.dias@logitrans.com.br', telefone: '11 98800-3001', tipo: 'principal', principal: true },
+  { id: 'ct07', cliente_id: 'c3', nome: 'Marina Alencar', cargo: 'Diretora Administrativa', email: 'marina@logitrans.com.br', telefone: '11 98800-3002', tipo: 'executivo', principal: false, observacao: 'Decide sobre renovação contratual.' },
+  { id: 'ct08', cliente_id: 'c4', nome: 'Patrícia Nunes', cargo: 'Coordenadora de Tecnologia', email: 'patricia.nunes@eduplus.com.br', telefone: '11 98800-4001', tipo: 'principal', principal: true },
+  { id: 'ct09', cliente_id: 'c5', nome: 'Alberto Ramalho', cargo: 'Diretor Clínico', email: 'alberto@healthnet.com.br', telefone: '11 98800-5001', tipo: 'executivo', principal: true },
+];
+
+export const niveisEscalonamento: NivelEscalonamento[] = [
+  { id: 'ne01', cliente_id: 'c1', nivel: 1, titulo: 'Plantão Suporte N1', prazo_minutos: 30, responsavel_interno_id: 'f03', contato_cliente_id: 'ct02', canal: 'Grupo WhatsApp · GLPI', instrucoes: 'Triagem e tentativa de resolução pelo runbook padrão.' },
+  { id: 'ne02', cliente_id: 'c1', nivel: 2, titulo: 'Coordenação de Operações', prazo_minutos: 60, responsavel_interno_id: 'f02', contato_cliente_id: 'ct01', canal: 'Ligação + WhatsApp', instrucoes: 'Assumir a condução, acionar especialista e informar o gerente de TI.' },
+  { id: 'ne03', cliente_id: 'c1', nivel: 3, titulo: 'Gerência de Conta', prazo_minutos: 120, responsavel_interno_id: 'f16', contato_cliente_id: 'ct03', canal: 'Ligação direta', instrucoes: 'Comunicação executiva, plano de contorno e alinhamento comercial.' },
+
+  { id: 'ne04', cliente_id: 'c2', nivel: 1, titulo: 'Suporte N2 dedicado', prazo_minutos: 15, responsavel_interno_id: 'f05', contato_cliente_id: 'ct05', canal: 'Teams (canal dedicado)', instrucoes: 'Contrato bancário: qualquer indisponibilidade abre incidente imediato.' },
+  { id: 'ne05', cliente_id: 'c2', nivel: 2, titulo: 'Coordenação + Segurança', prazo_minutos: 30, responsavel_interno_id: 'f02', contato_cliente_id: 'ct05', canal: 'Ponte de crise', instrucoes: 'Abrir ponte com o Head de Segurança do cliente e registrar linha do tempo.' },
+  { id: 'ne06', cliente_id: 'c2', nivel: 3, titulo: 'Diretoria', prazo_minutos: 60, responsavel_interno_id: 'f01', contato_cliente_id: 'ct04', canal: 'Ligação direta', instrucoes: 'Notificação formal à Diretoria de Operações em até 1h.' },
+
+  { id: 'ne07', cliente_id: 'c3', nivel: 1, titulo: 'NOC 24×7', prazo_minutos: 60, responsavel_interno_id: 'f12', contato_cliente_id: 'ct06', canal: 'Zabbix + WhatsApp', instrucoes: 'Validar alerta, aplicar contorno conhecido e registrar no GLPI.' },
+  { id: 'ne08', cliente_id: 'c3', nivel: 2, titulo: 'Coordenação de Infraestrutura', prazo_minutos: 120, responsavel_interno_id: 'f10', contato_cliente_id: 'ct07', canal: 'Ligação', instrucoes: 'Acionar fornecedor de link se o problema for de operadora.' },
+
+  { id: 'ne09', cliente_id: 'c4', nivel: 1, titulo: 'Suporte comercial', prazo_minutos: 120, responsavel_interno_id: 'f13', contato_cliente_id: 'ct08', canal: 'E-mail + GLPI', instrucoes: 'Atendimento em horário comercial; fora disso, fila do dia seguinte.' },
+];
+
+export const servicos: Servico[] = [
+  { id: 'sv1', nome: 'Service Desk N1', categoria: 'suporte', descricao: 'Triagem, atendimento e resolução de chamados de primeiro nível.', ativo: true },
+  { id: 'sv2', nome: 'Suporte Técnico N2', categoria: 'suporte', descricao: 'Análise aprofundada e resolução de incidentes escalados.', ativo: true },
+  { id: 'sv3', nome: 'Monitoramento 24×7', categoria: 'monitoramento', descricao: 'Observabilidade de servidores, links e aplicações com alerta ativo.', ativo: true },
+  { id: 'sv4', nome: 'Administração de Servidores', categoria: 'infraestrutura', descricao: 'Sustentação de ambientes Linux e Windows, patching e backup.', ativo: true },
+  { id: 'sv5', nome: 'Gestão de Cloud', categoria: 'infraestrutura', descricao: 'Operação e otimização de custos em AWS e Azure.', ativo: true },
+  { id: 'sv6', nome: 'Field Service', categoria: 'field_service', descricao: 'Atendimento presencial e manutenção de parque de equipamentos.', ativo: true },
+  { id: 'sv7', nome: 'Desenvolvimento de Integrações', categoria: 'desenvolvimento', descricao: 'APIs, automações e integração entre sistemas do cliente.', ativo: true },
+  { id: 'sv8', nome: 'Consultoria em Segurança', categoria: 'consultoria', descricao: 'Avaliação de postura, hardening e apoio a auditorias.', ativo: true },
+];
+
+export const servicosContratados: ServicoContratado[] = [
+  { id: 'sc01', cliente_id: 'c1', servico_id: 'sv1', regime: '24x7', quantidade: 4, unidade: 'postos', observacao: 'Dois postos por turno.' },
+  { id: 'sc02', cliente_id: 'c1', servico_id: 'sv3', regime: '24x7', quantidade: 120, unidade: 'hosts' },
+  { id: 'sc03', cliente_id: 'c1', servico_id: 'sv5', regime: '8x5', quantidade: 1, unidade: 'conta AWS' },
+  { id: 'sc04', cliente_id: 'c2', servico_id: 'sv2', regime: '24x7', quantidade: 3, unidade: 'postos' },
+  { id: 'sc05', cliente_id: 'c2', servico_id: 'sv3', regime: '24x7', quantidade: 260, unidade: 'hosts' },
+  { id: 'sc06', cliente_id: 'c2', servico_id: 'sv8', regime: 'sob_demanda', quantidade: 40, unidade: 'horas/mês' },
+  { id: 'sc07', cliente_id: 'c3', servico_id: 'sv3', regime: '24x7', quantidade: 85, unidade: 'hosts' },
+  { id: 'sc08', cliente_id: 'c3', servico_id: 'sv4', regime: '12x5', quantidade: 22, unidade: 'servidores' },
+  { id: 'sc09', cliente_id: 'c4', servico_id: 'sv1', regime: '8x5', quantidade: 2, unidade: 'postos' },
+  { id: 'sc10', cliente_id: 'c4', servico_id: 'sv6', regime: 'sob_demanda', quantidade: 8, unidade: 'visitas/mês' },
+  { id: 'sc11', cliente_id: 'c4', servico_id: 'sv7', regime: 'sob_demanda', quantidade: 60, unidade: 'horas/mês' },
 ];
 
 export const equipes: Equipe[] = [
-  { id: 'eq1', nome: 'Suporte N1', cliente_id: 'c1', gestor_id: 'f02', departamento_id: 'dep1', cobertura_minima: 2, ativo: true },
-  { id: 'eq2', nome: 'Suporte N2', cliente_id: 'c2', gestor_id: 'f02', departamento_id: 'dep1', cobertura_minima: 2, ativo: true },
-  { id: 'eq3', nome: 'NOC 24x7', cliente_id: 'c3', gestor_id: 'f10', departamento_id: 'dep3', cobertura_minima: 1, ativo: true },
+  { id: 'eq1', nome: 'Suporte N1', gestor_id: 'f02', departamento_id: 'dep1', cobertura_minima: 2, ativo: true },
+  { id: 'eq2', nome: 'Suporte N2', gestor_id: 'f02', departamento_id: 'dep1', cobertura_minima: 2, ativo: true },
+  { id: 'eq3', nome: 'NOC 24x7', gestor_id: 'f10', departamento_id: 'dep3', cobertura_minima: 1, ativo: true },
   { id: 'eq4', nome: 'Desenvolvimento', gestor_id: 'f07', departamento_id: 'dep2', cobertura_minima: 0, ativo: true },
-  { id: 'eq5', nome: 'Field Service', cliente_id: 'c4', gestor_id: 'f10', departamento_id: 'dep3', cobertura_minima: 1, ativo: true },
+  { id: 'eq5', nome: 'Field Service', gestor_id: 'f10', departamento_id: 'dep3', cobertura_minima: 1, ativo: true },
   { id: 'eq6', nome: 'Backoffice', gestor_id: 'f01', departamento_id: 'dep4', cobertura_minima: 0, ativo: true },
-  { id: 'eq7', nome: 'Monitoramento Legado', cliente_id: 'c5', departamento_id: 'dep3', cobertura_minima: 0, ativo: false },
+  { id: 'eq7', nome: 'Monitoramento Legado', departamento_id: 'dep3', cobertura_minima: 0, ativo: false },
+];
+
+/** Quais equipes atuam em cada conta — o NOC atende várias ao mesmo tempo. */
+export const atendimentoEquipes: AtendimentoEquipe[] = [
+  { id: 'ae01', cliente_id: 'c1', equipe_id: 'eq1', escopo: 'Service desk N1 em regime 24×7.', principal: true },
+  { id: 'ae02', cliente_id: 'c1', equipe_id: 'eq3', escopo: 'Monitoramento do parque e alertas de disponibilidade.', principal: false },
+  { id: 'ae03', cliente_id: 'c2', equipe_id: 'eq2', escopo: 'Suporte N2 dedicado ao ambiente bancário.', principal: true },
+  { id: 'ae04', cliente_id: 'c2', equipe_id: 'eq3', escopo: 'Monitoramento crítico com alerta ativo.', principal: false },
+  { id: 'ae05', cliente_id: 'c3', equipe_id: 'eq3', escopo: 'NOC e sustentação de servidores.', principal: true },
+  { id: 'ae06', cliente_id: 'c3', equipe_id: 'eq5', escopo: 'Atendimento presencial nas filiais.', principal: false },
+  { id: 'ae07', cliente_id: 'c4', equipe_id: 'eq1', escopo: 'Service desk em horário comercial.', principal: true },
+  { id: 'ae08', cliente_id: 'c4', equipe_id: 'eq5', escopo: 'Visitas técnicas às unidades.', principal: false },
+  { id: 'ae09', cliente_id: 'c4', equipe_id: 'eq4', escopo: 'Integrações com a plataforma de ensino.', principal: false },
+];
+
+export const avaliacoesCliente: AvaliacaoCliente[] = [
+  { id: 'av01', cliente_id: 'c1', data: dia(-190), nota: 8, registrado_por: 'f16', comentario: 'Satisfeitos com o N1, cobram mais proatividade no monitoramento.' },
+  { id: 'av02', cliente_id: 'c1', data: dia(-95), nota: 9, registrado_por: 'f16', comentario: 'Melhora clara após a revisão dos alertas do Zabbix.' },
+  { id: 'av03', cliente_id: 'c1', data: dia(-20), nota: 9, registrado_por: 'f16', comentario: 'Renovação encaminhada; pediram proposta de expansão de cloud.' },
+  { id: 'av04', cliente_id: 'c2', data: dia(-160), nota: 9, registrado_por: 'f16', comentario: 'Elogiaram o tempo de resposta no incidente de fevereiro.' },
+  { id: 'av05', cliente_id: 'c2', data: dia(-45), nota: 8, registrado_por: 'f16', comentario: 'Pedem relatório mensal de segurança mais detalhado.' },
+  { id: 'av06', cliente_id: 'c3', data: dia(-210), nota: 7, registrado_por: 'f01', comentario: 'Reclamação sobre demora em chamados de filial.' },
+  { id: 'av07', cliente_id: 'c3', data: dia(-30), nota: 5, registrado_por: 'f01', comentario: 'Insatisfeitos com recorrência de queda de link; risco de não renovar.' },
+  { id: 'av08', cliente_id: 'c4', data: dia(-75), nota: 10, registrado_por: 'f16', comentario: 'Muito satisfeitos com as integrações entregues no prazo.' },
 ];
 
 export const funcionarios: Funcionario[] = [

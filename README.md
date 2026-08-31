@@ -13,7 +13,8 @@ React 18 + TypeScript + Vite + Tailwind + shadcn/ui.
 | --- | --- |
 | **Portal RH** | Indicadores do dia, alertas de furo de escala, férias em risco, aniversários, headcount por área e mural |
 | **Funcionários** | Cadastro completo (cargo, área, gestor, contrato, admissão), ficha com abas, desligamento e exportação |
-| **Equipes** | Time, gestor, cliente atendido e **cobertura mínima diária** |
+| **Equipes** | Time, gestor, contas atendidas e **cobertura mínima diária** |
+| **Clientes** | Contrato e renovação, contatos, escalonamento próprio, equipes designadas, serviços contratados e satisfação |
 | **Gestores** | Quem lidera cada equipe, com liderados e fila de aprovação |
 | **Escalas** | Modelos 12×36, 5×2, 6×1 e personalizados, com carga semanal e vinculados |
 | **Plantões** | Calendário mensal, detalhe do dia, escalação avulsa e **troca de turno** |
@@ -23,6 +24,26 @@ React 18 + TypeScript + Vite + Tailwind + shadcn/ui.
 | **Acessos** | Concessão, alteração e revogação, com catálogo de sistemas e prazo de expiração |
 | **Comunicados** | Mural interno, com itens fixados no Portal |
 | **Auditoria** | Trilha de quem alterou o quê e quando |
+
+### A ficha do cliente
+
+Cada conta reúne, em cinco abas:
+
+- **Contrato** — razão social, CNPJ, vigência, data de renovação, aviso prévio,
+  renovação automática, valor mensal, regime e SLAs de resposta e resolução.
+- **Contatos** — pessoas do lado do cliente, com tipo (principal, técnico,
+  financeiro, executivo). Só um contato principal por conta.
+- **Escalonamento** — trilha própria de cada cliente: quem aciona, em quanto
+  tempo, por qual canal e com quais instruções, com o tempo acumulado até cada
+  degrau.
+- **Operação** — equipes designadas (com escopo e equipe de frente) e serviços
+  contratados, com regime e volume.
+- **Satisfação** — histórico de NPS registrado pelo gerente de conta, com
+  variação entre medições.
+
+A ficha aponta sozinha as **lacunas de cadastro** que travam a operação num
+incidente: conta sem contato principal, sem trilha de escalonamento, sem equipe
+designada ou sem gerente de conta.
 
 ### Regras de negócio verificadas
 
@@ -41,6 +62,13 @@ recalcula direito de férias por conta própria.
   equipe abaixo da cobertura mínima do dia.
 - **Acesso temporário vencido**: aponta acessos cuja data de expiração passou
   e que ninguém revogou.
+- **Renovação de contrato** (`src/lib/clientes.ts`): a partir da vigência e do
+  aviso prévio contratado, calcula o prazo-limite para comunicar não-renovação
+  e avisa quando ele passou — em contrato com renovação automática, isso
+  significa que ele já renovou por omissão.
+- **NPS**: 0–6 detrator, 7–8 neutro, 9–10 promotor. A carteira usa a medição
+  mais recente de cada conta e o painel destaca contas detratoras e sem
+  medição há mais de 180 dias.
 
 ## Papéis de acesso
 
@@ -114,7 +142,8 @@ Os ícones (`favicon.ico` multi-resolução, `apple-touch-icon.png`,
 src/
   components/
     brand/Logo.tsx       marca e wordmark (herda a cor do tema)
-    comum.tsx            cabeçalho, indicador, avatar, badge, estado vazio
+    clientes/            ficha da conta com as cinco abas
+    comum.tsx            cabeçalho, indicador, avatar, badge, estado vazio, campo de form
     AppSidebar.tsx       navegação por papel, com contador de pendências
     PaletaComandos.tsx   busca global (Ctrl/⌘ + K)
   contexts/AuthContext   sessão e permissões
@@ -125,6 +154,7 @@ src/
   lib/
     date.ts              datas de calendário e turnos que viram a meia-noite
     rh.ts                regras de férias, cobertura e indicadores
+    clientes.ts          contrato, escalonamento e satisfação
     labels.ts            rótulos em pt-BR e cores por status
     export.ts            CSV para Excel brasileiro
   pages/                 uma por módulo

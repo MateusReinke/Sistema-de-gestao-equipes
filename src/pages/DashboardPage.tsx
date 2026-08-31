@@ -30,6 +30,7 @@ import { Avatar, Aviso, BadgeStatus, CabecalhoPagina, EstadoVazio, Indicador } f
 import { useDados } from '@/data/store';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePendencias } from '@/hooks/usePendencias';
+import { contratosParaRenovar } from '@/lib/clientes';
 import {
   aniversariantesDoMes,
   aniversariosDeEmpresaDoMes,
@@ -60,7 +61,7 @@ const CORES_GRAFICO = [
 
 export default function DashboardPage() {
   const dados = useDados();
-  const { sessao } = useAuth();
+  const { sessao, ehRh } = useAuth();
   const { pendencias } = usePendencias();
   const hojeIso = hoje();
 
@@ -121,6 +122,12 @@ export default function DashboardPage() {
         .filter((r) => r.saldo.vencido || r.saldo.vencendo)
         .sort((a, b) => (a.saldo.diasAteVencer ?? 0) - (b.saldo.diasAteVencer ?? 0)),
     [ativos, ferias, hojeIso],
+  );
+
+  /** Contratos exigem decisão comercial, então só o RH/administração vê. */
+  const contratos = useMemo(
+    () => (ehRh ? contratosParaRenovar(dados.clientes, hojeIso) : []),
+    [ehRh, dados.clientes, hojeIso],
   );
 
   const aniversariantes = useMemo(() => aniversariantesDoMes(ativos, hojeIso), [ativos, hojeIso]);
@@ -188,7 +195,10 @@ export default function DashboardPage() {
       </div>
 
       {/* Alertas que exigem ação hoje, antes de qualquer listagem. */}
-      {(descobertos.length > 0 || semCobertura.length > 0 || feriasCriticas.length > 0) && (
+      {(descobertos.length > 0 ||
+        semCobertura.length > 0 ||
+        feriasCriticas.length > 0 ||
+        contratos.length > 0) && (
         <Card className="border-warning/40 shadow-card">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
@@ -223,6 +233,18 @@ export default function DashboardPage() {
                 </Aviso>
               );
             })}
+
+            {contratos.slice(0, 3).map(({ cliente, situacao }) => (
+              <Aviso key={cliente.id} tom={situacao.vencido ? 'destructive' : 'warning'}>
+                Contrato de <strong>{cliente.nome}</strong>{' '}
+                {situacao.vencido
+                  ? `venceu em ${formatarData(cliente.contrato_fim)} sem renovação formal.`
+                  : `renova ${humanizarPrazo(cliente.contrato_fim)}.`}{' '}
+                <Link to="/clientes" className="underline underline-offset-2">
+                  Ver contrato
+                </Link>
+              </Aviso>
+            ))}
 
             {feriasCriticas.slice(0, 4).map(({ funcionario, saldo }) => (
               <Aviso key={funcionario.id} tom={saldo.vencido ? 'destructive' : 'warning'}>

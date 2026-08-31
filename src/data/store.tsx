@@ -20,9 +20,12 @@ import React, {
 } from 'react';
 import type {
   AcaoAuditoria,
+  AtendimentoEquipe,
   Ausencia,
+  AvaliacaoCliente,
   Cliente,
   Comunicado,
+  ContatoCliente,
   Departamento,
   Equipe,
   Escala,
@@ -31,7 +34,10 @@ import type {
   EventoAuditoria,
   Ferias,
   Funcionario,
+  NivelEscalonamento,
   Plantao,
+  Servico,
+  ServicoContratado,
   Sistema,
   SolicitacaoAcesso,
   StatusSolicitacao,
@@ -44,12 +50,18 @@ import { agora } from '@/lib/date';
 
 const CHAVE_ARMAZENAMENTO = 'lumini.central.db';
 /** Subir esta versão descarta a base local e recarrega o seed. */
-const VERSAO_BASE = 4;
+const VERSAO_BASE = 5;
 
 export interface BaseDados {
   versao: number;
   departamentos: Departamento[];
   clientes: Cliente[];
+  contatosCliente: ContatoCliente[];
+  niveisEscalonamento: NivelEscalonamento[];
+  servicos: Servico[];
+  servicosContratados: ServicoContratado[];
+  atendimentoEquipes: AtendimentoEquipe[];
+  avaliacoesCliente: AvaliacaoCliente[];
   equipes: Equipe[];
   funcionarios: Funcionario[];
   usuarios: Usuario[];
@@ -71,6 +83,12 @@ function baseInicial(): BaseDados {
     versao: VERSAO_BASE,
     departamentos: seed.departamentos,
     clientes: seed.clientes,
+    contatosCliente: seed.contatosCliente,
+    niveisEscalonamento: seed.niveisEscalonamento,
+    servicos: seed.servicos,
+    servicosContratados: seed.servicosContratados,
+    atendimentoEquipes: seed.atendimentoEquipes,
+    avaliacoesCliente: seed.avaliacoesCliente,
     equipes: seed.equipes,
     funcionarios: seed.funcionarios,
     usuarios: seed.usuarios,
@@ -149,12 +167,24 @@ interface ContextoDados extends BaseDados {
   salvarFuncionario: (f: Funcionario) => void;
   desligarFuncionario: (id: string, data: string) => void;
   salvarEquipe: (e: Equipe) => void;
-  salvarCliente: (c: Cliente) => void;
   salvarDepartamento: (d: Departamento) => void;
   salvarEscala: (e: Escala) => void;
   salvarSistema: (s: Sistema) => void;
   salvarComunicado: (c: Comunicado) => void;
   removerComunicado: (id: string) => void;
+
+  /* ------------------------------------------------------------ clientes */
+  salvarCliente: (c: Cliente) => void;
+  salvarContatoCliente: (c: ContatoCliente) => void;
+  removerContatoCliente: (id: string) => void;
+  salvarNivelEscalonamento: (n: NivelEscalonamento) => void;
+  removerNivelEscalonamento: (id: string) => void;
+  salvarServico: (s: Servico) => void;
+  salvarServicoContratado: (s: ServicoContratado) => void;
+  removerServicoContratado: (id: string) => void;
+  salvarAtendimentoEquipe: (a: AtendimentoEquipe) => void;
+  removerAtendimentoEquipe: (id: string) => void;
+  salvarAvaliacaoCliente: (a: AvaliacaoCliente) => void;
 
   salvarFerias: (f: Ferias) => void;
   salvarAusencia: (a: Ausencia) => void;
@@ -293,6 +323,77 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
     (p: Plantao) => criarSalvar('plantoes', 'Plantão', (i: Plantao) => `${i.data} ${i.hora_inicio}`)(p),
     [criarSalvar],
   );
+  const salvarContatoCliente = useCallback(
+    (c: ContatoCliente) =>
+      criarSalvar('contatosCliente', 'Contato do cliente', (i: ContatoCliente) => i.nome)(c),
+    [criarSalvar],
+  );
+  const salvarNivelEscalonamento = useCallback(
+    (n: NivelEscalonamento) =>
+      criarSalvar(
+        'niveisEscalonamento',
+        'Escalonamento',
+        (i: NivelEscalonamento) => `N${i.nivel} — ${i.titulo}`,
+      )(n),
+    [criarSalvar],
+  );
+  const salvarServico = useCallback(
+    (s: Servico) => criarSalvar('servicos', 'Serviço', (i: Servico) => i.nome)(s),
+    [criarSalvar],
+  );
+  const salvarServicoContratado = useCallback(
+    (s: ServicoContratado) =>
+      criarSalvar(
+        'servicosContratados',
+        'Serviço contratado',
+        (i: ServicoContratado) => `${i.quantidade} ${i.unidade}`,
+      )(s),
+    [criarSalvar],
+  );
+  const salvarAtendimentoEquipe = useCallback(
+    (a: AtendimentoEquipe) =>
+      criarSalvar('atendimentoEquipes', 'Equipe do cliente', (i: AtendimentoEquipe) => i.escopo)(a),
+    [criarSalvar],
+  );
+  const salvarAvaliacaoCliente = useCallback(
+    (a: AvaliacaoCliente) =>
+      criarSalvar('avaliacoesCliente', 'Avaliação', (i: AvaliacaoCliente) => `Nota ${i.nota}`)(a),
+    [criarSalvar],
+  );
+
+  /** Fábrica das operações de remoção — mesmo formato para toda coleção. */
+  const criarRemover = useCallback(
+    <K extends keyof BaseDados>(colecao: K, entidade: string, descricao: string) =>
+      (id: string) => {
+        mutar(
+          (atual) => ({
+            [colecao]: (atual[colecao] as { id: string }[]).filter((i) => i.id !== id),
+          }) as Partial<BaseDados>,
+          { acao: 'removeu', entidade, entidade_id: id, descricao },
+        );
+      },
+    [mutar],
+  );
+
+  const removerContatoCliente = useCallback(
+    (id: string) => criarRemover('contatosCliente', 'Contato do cliente', 'Contato removido')(id),
+    [criarRemover],
+  );
+  const removerNivelEscalonamento = useCallback(
+    (id: string) =>
+      criarRemover('niveisEscalonamento', 'Escalonamento', 'Nível removido da trilha')(id),
+    [criarRemover],
+  );
+  const removerServicoContratado = useCallback(
+    (id: string) =>
+      criarRemover('servicosContratados', 'Serviço contratado', 'Serviço retirado do contrato')(id),
+    [criarRemover],
+  );
+  const removerAtendimentoEquipe = useCallback(
+    (id: string) =>
+      criarRemover('atendimentoEquipes', 'Equipe do cliente', 'Equipe desvinculada da conta')(id),
+    [criarRemover],
+  );
 
   const removerComunicado = useCallback(
     (id: string) => {
@@ -424,6 +525,16 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
       desligarFuncionario,
       salvarEquipe,
       salvarCliente,
+      salvarContatoCliente,
+      removerContatoCliente,
+      salvarNivelEscalonamento,
+      removerNivelEscalonamento,
+      salvarServico,
+      salvarServicoContratado,
+      removerServicoContratado,
+      salvarAtendimentoEquipe,
+      removerAtendimentoEquipe,
+      salvarAvaliacaoCliente,
       salvarDepartamento,
       salvarEscala,
       salvarSistema,
@@ -445,6 +556,16 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
       desligarFuncionario,
       salvarEquipe,
       salvarCliente,
+      salvarContatoCliente,
+      removerContatoCliente,
+      salvarNivelEscalonamento,
+      removerNivelEscalonamento,
+      salvarServico,
+      salvarServicoContratado,
+      removerServicoContratado,
+      salvarAtendimentoEquipe,
+      removerAtendimentoEquipe,
+      salvarAvaliacaoCliente,
       salvarDepartamento,
       salvarEscala,
       salvarSistema,
