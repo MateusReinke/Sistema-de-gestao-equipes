@@ -35,6 +35,15 @@ const AuditoriaPage = lazy(() => import('@/pages/AuditoriaPage'));
 
 const queryClient = new QueryClient();
 
+/** Tela cheia enquanto a sessão é resolvida. */
+function TelaCarregando() {
+  return (
+    <div className="brand-hero grid min-h-screen place-items-center">
+      <div className="animate-pulse text-sm text-white/60">Carregando…</div>
+    </div>
+  );
+}
+
 /** Esqueleto exibido enquanto o pedaço da rota é baixado. */
 function CarregandoPagina() {
   return (
@@ -56,7 +65,10 @@ function CarregandoPagina() {
  * já que o item sequer aparece no menu para esse usuário.
  */
 function Protegida({ children, papeis }: { children: React.ReactNode; papeis?: UserRole[] }) {
-  const { sessao, papel } = useAuth();
+  const { sessao, papel, carregando } = useAuth();
+  // Enquanto a sessão não é resolvida, redirecionar mandaria todo mundo para
+  // o login a cada recarga de página.
+  if (carregando) return <TelaCarregando />;
   if (!sessao) return <Navigate to="/login" replace />;
   if (papeis && (papel === null || !papeis.includes(papel))) return <Navigate to="/" replace />;
   return (
@@ -70,11 +82,14 @@ const GESTAO: UserRole[] = ['admin', 'rh', 'gestor'];
 const RH: UserRole[] = ['admin', 'rh'];
 
 function Rotas() {
-  const { sessao } = useAuth();
+  const { sessao, carregando } = useAuth();
 
   return (
     <Routes>
-      <Route path="/login" element={sessao ? <Navigate to="/" replace /> : <LoginPage />} />
+      <Route
+        path="/login"
+        element={sessao && !carregando ? <Navigate to="/" replace /> : <LoginPage />}
+      />
 
       <Route path="/" element={<Protegida><DashboardPage /></Protegida>} />
       <Route path="/funcionarios" element={<Protegida papeis={GESTAO}><FuncionariosPage /></Protegida>} />
@@ -101,14 +116,14 @@ const App = () => (
       <TooltipProvider delayDuration={300}>
         <Toaster />
         <Sonner position="top-right" richColors closeButton />
-        {/* Os dados ficam por fora da sessão: o login lê os usuários da base. */}
-        <DadosProvider>
-          <BrowserRouter>
-            <AuthProvider>
+        <BrowserRouter>
+          {/* A sessão vem primeiro: a carga de dados depende de estar logado. */}
+          <AuthProvider>
+            <DadosProvider>
               <Rotas />
-            </AuthProvider>
-          </BrowserRouter>
-        </DadosProvider>
+            </DadosProvider>
+          </AuthProvider>
+        </BrowserRouter>
       </TooltipProvider>
     </ThemeProvider>
   </QueryClientProvider>

@@ -10,6 +10,15 @@ export default defineConfig(({ mode }) => ({
     hmr: {
       overlay: false,
     },
+    // Em desenvolvimento o Vite serve o front e a API roda em outra porta.
+    // O proxy mantém tudo na mesma origem, para o cookie de sessão funcionar
+    // igual ao que acontece em produção.
+    proxy: {
+      "/api": {
+        target: process.env.API_URL ?? "http://127.0.0.1:3000",
+        changeOrigin: false,
+      },
+    },
   },
   plugins: [react()],
   resolve: {

@@ -36,7 +36,7 @@ export interface Departamento {
   sigla: string;
   centro_custo: string;
   /** Funcionário responsável pela área. */
-  responsavel_id?: string;
+  responsavel_id?: string | null;
 }
 
 /* ---------------------------------------------------------------- clientes */
@@ -59,7 +59,7 @@ export interface Cliente {
    * relacionamento, distinto de quem responde tecnicamente.
    */
   gerente_conta_id: string;
-  responsavel_tecnico_id?: string;
+  responsavel_tecnico_id?: string | null;
 
   /* ---------------------------------------------------------- contrato */
   contrato_numero: string;
@@ -96,7 +96,7 @@ export interface ContatoCliente {
   tipo: TipoContato;
   /** Contato padrão para abertura e retorno de chamados. */
   principal: boolean;
-  observacao?: string;
+  observacao?: string | null;
 }
 
 /**
@@ -114,9 +114,9 @@ export interface NivelEscalonamento {
   /** Tempo sem solução até acionar o próximo nível. */
   prazo_minutos: number;
   /** Quem responde pela Lumini neste degrau. */
-  responsavel_interno_id?: string;
+  responsavel_interno_id?: string | null;
   /** Quem é avisado do lado do cliente. */
-  contato_cliente_id?: string;
+  contato_cliente_id?: string | null;
   canal: string;
   instrucoes: string;
 }
@@ -147,7 +147,7 @@ export interface ServicoContratado {
   /** Volume contratado — postos, hosts, licenças, chamados/mês. */
   quantidade: number;
   unidade: string;
-  observacao?: string;
+  observacao?: string | null;
 }
 
 /**
@@ -181,8 +181,8 @@ export interface Equipe {
   id: string;
   nome: string;
   /** Gestor da equipe — é um funcionário, não um cadastro à parte. */
-  gestor_id?: string;
-  departamento_id?: string;
+  gestor_id?: string | null;
+  departamento_id?: string | null;
   /** Mínimo de pessoas em serviço para a equipe ser considerada coberta. */
   cobertura_minima: number;
   ativo: boolean;
@@ -209,12 +209,12 @@ export interface Funcionario {
   departamento_id: string;
   equipe_id: string;
   /** Gestor direto. Vazio para o topo da hierarquia. */
-  gestor_id?: string;
+  gestor_id?: string | null;
   tipo_contrato: TipoContrato;
   modelo_trabalho: ModeloTrabalho;
   data_admissao: IsoDate;
   data_nascimento: IsoDate;
-  data_desligamento?: IsoDate;
+  data_desligamento?: IsoDate | null;
   status: StatusFuncionario;
   local: string;
 }
@@ -259,7 +259,7 @@ export type StatusPlantao = 'previsto' | 'confirmado' | 'trocado' | 'ausente';
 export interface Plantao {
   id: string;
   funcionario_id: string;
-  escala_id?: string;
+  escala_id?: string | null;
   data: IsoDate;
   hora_inicio: HoraMinuto;
   hora_fim: HoraMinuto;
@@ -283,9 +283,9 @@ export interface BaseSolicitacao {
   status: StatusSolicitacao;
   solicitado_por: string;
   solicitado_em: IsoDateTime;
-  decidido_por?: string;
-  decidido_em?: IsoDateTime;
-  observacao_decisao?: string;
+  decidido_por?: string | null;
+  decidido_em?: IsoDateTime | null;
+  observacao_decisao?: string | null;
 }
 
 export interface Ferias extends BaseSolicitacao {
@@ -351,7 +351,7 @@ export interface SolicitacaoAcesso extends BaseSolicitacao {
   nivel: NivelAcesso;
   justificativa: string;
   /** Data de expiração para acesso temporário. */
-  expira_em?: IsoDate;
+  expira_em?: IsoDate | null;
 }
 
 export interface TrocaPlantao extends BaseSolicitacao {
@@ -407,5 +407,5 @@ export interface Pendencia {
   detalhe: string;
   solicitado_em: IsoDateTime;
   status: StatusSolicitacao;
-  equipe_id?: string;
+  equipe_id?: string | null;
 }

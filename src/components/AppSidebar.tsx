@@ -171,7 +171,7 @@ export function AppSidebar() {
         <Button
           variant="ghost"
           size={recolhida ? 'icon' : 'sm'}
-          onClick={sair}
+          onClick={() => void sair()}
           className="w-full text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
         >
           <LogOut className="h-4 w-4" />

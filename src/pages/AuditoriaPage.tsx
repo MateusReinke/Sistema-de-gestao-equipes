@@ -1,22 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Download, FileClock, RotateCcw, Search } from 'lucide-react';
-import { toast } from 'sonner';
+import { Download, FileClock, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
 import { Avatar, BadgeStatus, CabecalhoPagina, EstadoVazio } from '@/components/comum';
 import { useDados } from '@/data/store';
 import { formatarDataHora, hoje } from '@/lib/date';
@@ -42,7 +30,7 @@ const CLASSE_ACAO: Record<AcaoAuditoria, string> = {
 };
 
 export default function AuditoriaPage() {
-  const { auditoria, restaurarSeed } = useDados();
+  const { auditoria } = useDados();
   const [busca, setBusca] = useState('');
   const [filtroAcao, setFiltroAcao] = useState<AcaoAuditoria | 'todas'>('todas');
 
@@ -69,40 +57,12 @@ export default function AuditoriaPage() {
     <div className="space-y-5">
       <CabecalhoPagina
         titulo="Trilha de auditoria"
-        descricao="Quem alterou o quê, e quando. Mantém os 500 eventos mais recentes."
+        descricao="Quem alterou o quê, e quando. Os 500 eventos mais recentes."
         acoes={
           <>
             <Button variant="outline" onClick={exportar} disabled={filtrados.length === 0}>
               <Download className="mr-2 h-4 w-4" /> Exportar
             </Button>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="outline" className="border-destructive/40 text-destructive hover:bg-destructive/10">
-                  <RotateCcw className="mr-2 h-4 w-4" /> Restaurar dados de exemplo
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Restaurar a base de demonstração?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Todos os cadastros, solicitações e a própria trilha de auditoria voltam ao
-                    estado inicial. Como os dados ficam no navegador, esta ação não pode ser
-                    desfeita.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={() => {
-                      restaurarSeed();
-                      toast.success('Base restaurada.');
-                    }}
-                  >
-                    Restaurar
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
           </>
         }
       />
