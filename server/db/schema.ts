@@ -12,6 +12,7 @@ import {
   date,
   index,
   integer,
+  json,
   pgEnum,
   pgTable,
   smallint,
@@ -57,6 +58,8 @@ const horaMinuto = customType<{ data: string; driverData: string }>({
 /* -------------------------------------------------------------------- enums */
 
 export const papelUsuario = pgEnum('papel_usuario', ['admin', 'rh', 'gestor', 'colaborador']);
+/** Sistemas externos suportados. Espelha `TipoIntegracao` de `src/lib/integracoes.ts`. */
+export const tipoIntegracao = pgEnum('tipo_integracao', ['zabbix', 'glpi', 'webhook']);
 export const tipoContrato = pgEnum('tipo_contrato', ['clt', 'pj', 'estagio', 'temporario', 'aprendiz']);
 export const modeloTrabalho = pgEnum('modelo_trabalho', ['presencial', 'hibrido', 'remoto']);
 export const statusFuncionario = pgEnum('status_funcionario', ['ativo', 'ferias', 'afastado', 'desligado']);
@@ -573,6 +576,88 @@ export const auditoria = pgTable(
   (t) => ({ porData: index('auditoria_em_idx').on(t.em) }),
 );
 
+/* --------------------------------------------------------------- integrações */
+
+/**
+ * Sistemas externos conectados à central.
+ *
+ * O desenho é o do *media type* do Zabbix: o tipo diz quais campos existem
+ * (catálogo em `src/lib/integracoes.ts`), e a linha guarda os valores. Assim
+ * um sistema novo entra sem migration — só uma entrada no catálogo.
+ */
+export const integracoes = pgTable(
+  'integracoes',
+  {
+    id: varchar('id', { length: 40 }).primaryKey(),
+    tipo: tipoIntegracao('tipo').notNull(),
+    nome: text('nome').notNull(),
+    descricao: text('descricao').notNull().default(''),
+    ativo: boolean('ativo').notNull().default(true),
+
+    /** Campos não sensíveis do catálogo: URL, tempo limite. */
+    parametros: json('parametros').notNull().default({}),
+
+    /**
+     * Campos marcados como segredo, cifrados em bloco com AES-256-GCM (ver
+     * `auth/segredos.ts`). Um dump do banco não entrega token de API.
+     */
+    segredos: text('segredos'),
+
+    /** Resultado do último teste de conexão, para a tela mostrar sem retestar. */
+    ultimo_teste_em: isoTimestamp('ultimo_teste_em'),
+    ultimo_teste_ok: boolean('ultimo_teste_ok'),
+    ultimo_teste_detalhe: text('ultimo_teste_detalhe'),
+
+    criado_em: isoTimestamp('criado_em').notNull(),
+    atualizado_em: isoTimestamp('atualizado_em'),
+    atualizado_por: varchar('atualizado_por', { length: 40 }),
+  },
+  (t) => ({ porTipo: index('integracoes_tipo_idx').on(t.tipo) }),
+);
+
+/**
+ * Consultas de alerta salvas sobre uma integração de monitoramento.
+ *
+ * É o que responde "como está o ambiente do cliente X": um filtro nomeado
+ * (severidade, grupos de host, tags) que pode ser amarrado a um cliente e
+ * liberado para ele enxergar.
+ */
+export const consultasAlerta = pgTable(
+  'consultas_alerta',
+  {
+    id: varchar('id', { length: 40 }).primaryKey(),
+    integracao_id: varchar('integracao_id', { length: 40 })
+      .notNull()
+      .references(() => integracoes.id, { onDelete: 'cascade' }),
+    nome: text('nome').notNull(),
+    descricao: text('descricao').notNull().default(''),
+
+    /** Filtro no formato de `FiltroAlerta` (`src/lib/integracoes.ts`). */
+    filtro: json('filtro').notNull().default({}),
+
+    /** A quem o resultado se refere. Sem cliente, é uma visão interna. */
+    cliente_id: varchar('cliente_id', { length: 40 }).references(() => clientes.id, {
+      onDelete: 'cascade',
+    }),
+
+    /**
+     * Libera a consulta para o próprio cliente ver. Só tem efeito com
+     * `cliente_id` preenchido — sem dono, não há a quem liberar.
+     */
+    visivel_para_cliente: boolean('visivel_para_cliente').notNull().default(false),
+
+    ordem: smallint('ordem').notNull().default(0),
+    ativo: boolean('ativo').notNull().default(true),
+
+    criado_em: isoTimestamp('criado_em').notNull(),
+    atualizado_em: isoTimestamp('atualizado_em'),
+  },
+  (t) => ({
+    porIntegracao: index('consultas_alerta_integracao_idx').on(t.integracao_id),
+    porCliente: index('consultas_alerta_cliente_idx').on(t.cliente_id),
+  }),
+);
+
 /* -------------------------------------------------------------------- sessão */
 
 /**
@@ -629,4 +714,6 @@ export const tabelasNaOrdem = [
   solicitacoesAcesso,
   trocasPlantao,
   comunicados,
+  integracoes,
+  consultasAlerta,
 ] as const;

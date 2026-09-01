@@ -34,6 +34,7 @@ const AcessosPage = lazy(() => import('@/pages/AcessosPage'));
 const ComunicadosPage = lazy(() => import('@/pages/ComunicadosPage'));
 const AuditoriaPage = lazy(() => import('@/pages/AuditoriaPage'));
 const AutenticacaoPage = lazy(() => import('@/pages/AutenticacaoPage'));
+const IntegracoesPage = lazy(() => import('@/pages/IntegracoesPage'));
 
 const queryClient = new QueryClient();
 
@@ -111,6 +112,7 @@ function Rotas() {
       <Route path="/comunicados" element={<Protegida><ComunicadosPage /></Protegida>} />
       <Route path="/auditoria" element={<Protegida papeis={RH}><AuditoriaPage /></Protegida>} />
       <Route path="/autenticacao" element={<Protegida papeis={ADMIN}><AutenticacaoPage /></Protegida>} />
+      <Route path="/integracoes" element={<Protegida papeis={ADMIN}><IntegracoesPage /></Protegida>} />
 
       <Route path="*" element={<NotFound />} />
     </Routes>

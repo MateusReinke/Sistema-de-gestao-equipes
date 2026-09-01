@@ -14,6 +14,7 @@ import {
   UsersRound,
   CalendarClock,
   FileClock,
+  Plug,
   ShieldCheck,
 } from 'lucide-react';
 import {
@@ -42,6 +43,7 @@ const PAGINAS = [
   { titulo: 'Comunicados', url: '/comunicados', icone: Megaphone },
   { titulo: 'Auditoria', url: '/auditoria', icone: FileClock },
   { titulo: 'Autenticação', url: '/autenticacao', icone: ShieldCheck },
+  { titulo: 'Integrações', url: '/integracoes', icone: Plug },
 ];
 
 /**
