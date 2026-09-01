@@ -14,6 +14,7 @@ import {
   UsersRound,
   CalendarClock,
   FileClock,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   CommandDialog,
@@ -40,6 +41,7 @@ const PAGINAS = [
   { titulo: 'Acessos', url: '/acessos', icone: KeyRound },
   { titulo: 'Comunicados', url: '/comunicados', icone: Megaphone },
   { titulo: 'Auditoria', url: '/auditoria', icone: FileClock },
+  { titulo: 'Autenticação', url: '/autenticacao', icone: ShieldCheck },
 ];
 
 /**

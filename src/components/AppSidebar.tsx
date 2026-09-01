@@ -9,6 +9,7 @@ import {
   LogOut,
   Megaphone,
   Palmtree,
+  ShieldCheck,
   Stethoscope,
   UserCog,
   Users,
@@ -89,6 +90,7 @@ const GRUPOS: { rotulo: string; itens: ItemNav[] }[] = [
     itens: [
       { titulo: 'Comunicados', url: '/comunicados', icone: Megaphone },
       { titulo: 'Auditoria', url: '/auditoria', icone: FileClock, papeis: ['admin', 'rh'] },
+      { titulo: 'Autenticação', url: '/autenticacao', icone: ShieldCheck, papeis: ['admin'] },
     ],
   },
 ];
@@ -171,7 +173,7 @@ export function AppSidebar() {
         <Button
           variant="ghost"
           size={recolhida ? 'icon' : 'sm'}
-          onClick={sair}
+          onClick={() => void sair()}
           className="w-full text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
         >
           <LogOut className="h-4 w-4" />

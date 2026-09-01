@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Segredos: senha do banco, client secret do SSO
+.env
+.env.*
+!.env.example

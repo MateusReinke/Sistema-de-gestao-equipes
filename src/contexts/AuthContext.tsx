@@ -1,108 +1,144 @@
 /**
- * Sessão e permissões.
+ * Sessão e permissões, resolvidas pelo servidor.
  *
- * A autenticação é simulada (qualquer senha entra) porque não há backend — o
- * que importa aqui é o **papel**, que define o que cada pessoa enxerga e pode
- * decidir. Ao plugar um backend real, só `entrar` muda.
+ * O papel e o alcance de equipes vêm de `/api/auth/me`; aqui eles só orientam
+ * o que a interface mostra. Quem realmente autoriza é a API — esconder um
+ * botão não impede ninguém de chamar a rota.
+ *
+ * Duas formas de entrar convivem: senha cadastrada na própria central e SSO
+ * corporativo. Quais estão no ar vem de `/api/auth/config`, que o
+ * administrador controla pela tela de Autenticação.
  */
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Funcionario, UserRole, Usuario } from '@/types/sgo';
-import { useDados } from '@/data/store';
-
-const CHAVE_SESSAO = 'lumini.central.sessao';
+import { ErroApi, api } from '@/data/api';
 
 export interface Sessao {
   usuario: Usuario;
   funcionario: Funcionario;
+  papel: UserRole;
+  ehRh: boolean;
+  /** Equipes sob responsabilidade do usuário; `null` significa "todas". */
+  equipesVisiveis: string[] | null;
+  /** Senha emitida por outra pessoa: precisa ser trocada antes de seguir. */
+  deveTrocarSenha: boolean;
+}
+
+/** Formas de entrada oferecidas por esta instalação. */
+export interface MetodosEntrada {
+  senhaLocal: boolean;
+  sso: boolean;
+  /** Senha local ligada por variável de ambiente, apesar de desligada na tela. */
+  senhaLocalForcada: boolean;
 }
 
 interface ContextoAuth {
   sessao: Sessao | null;
-  entrar: (email: string, senha: string) => { ok: boolean; erro?: string };
-  sair: () => void;
+  carregando: boolean;
+  metodos: MetodosEntrada;
+
+  entrarComSenha: (email: string, senha: string) => Promise<void>;
+  /** Manda o navegador para o provedor de identidade. */
+  entrarComSso: () => void;
+  trocarSenha: (senhaAtual: string, senhaNova: string) => Promise<void>;
+  sair: () => Promise<void>;
+
   papel: UserRole | null;
-  /** Enxerga a empresa inteira e decide qualquer solicitação. */
   ehRh: boolean;
-  /** Decide solicitações — RH e admin. */
+  ehAdmin: boolean;
   podeAprovar: boolean;
-  /** Cria e edita cadastros de pessoas, equipes e sistemas. */
   podeGerenciar: boolean;
-  /** Equipes sob responsabilidade do usuário; `null` significa "todas". */
   equipesVisiveis: string[] | null;
 }
 
 const Contexto = createContext<ContextoAuth | null>(null);
 
+/** Enquanto a configuração não chega, supomos senha local: é o caso comum. */
+const METODOS_PADRAO: MetodosEntrada = { senhaLocal: true, sso: false, senhaLocalForcada: false };
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { usuarios, funcionarios, equipes, registrarAtor } = useDados();
-  const [usuarioId, setUsuarioId] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem(CHAVE_SESSAO);
-    } catch {
-      return null;
-    }
+  const cliente = useQueryClient();
+
+  const config = useQuery({
+    queryKey: ['auth', 'config'],
+    queryFn: () => api.get<MetodosEntrada>('/api/auth/config'),
+    staleTime: 5 * 60_000,
   });
 
-  const sessao = useMemo<Sessao | null>(() => {
-    if (!usuarioId) return null;
-    const usuario = usuarios.find((u) => u.id === usuarioId && u.ativo);
-    if (!usuario) return null;
-    const funcionario = funcionarios.find((f) => f.id === usuario.funcionario_id);
-    if (!funcionario) return null;
-    return { usuario, funcionario };
-  }, [usuarioId, usuarios, funcionarios]);
-
-  useEffect(() => {
-    try {
-      if (usuarioId) localStorage.setItem(CHAVE_SESSAO, usuarioId);
-      else localStorage.removeItem(CHAVE_SESSAO);
-    } catch {
-      // Sem persistência de sessão em modo privado; segue em memória.
-    }
-  }, [usuarioId]);
-
-  // Mantém a auditoria assinada por quem está de fato operando o sistema.
-  useEffect(() => {
-    registrarAtor(sessao ? { id: sessao.funcionario.id, nome: sessao.funcionario.nome } : null);
-  }, [sessao, registrarAtor]);
-
-  const entrar = useCallback(
-    (email: string, _senha: string) => {
-      const alvo = usuarios.find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
-      if (!alvo) return { ok: false, erro: 'E-mail não encontrado.' };
-      if (!alvo.ativo) return { ok: false, erro: 'Usuário inativo. Procure o RH.' };
-      setUsuarioId(alvo.id);
-      return { ok: true };
+  const sessao = useQuery({
+    queryKey: ['auth', 'me'],
+    queryFn: async () => {
+      try {
+        return await api.get<Sessao>('/api/auth/me');
+      } catch (erro) {
+        // 401 é resposta esperada de quem ainda não entrou, não é falha.
+        if (erro instanceof ErroApi && erro.naoAutenticado) return null;
+        throw erro;
+      }
     },
-    [usuarios],
+    retry: false,
+  });
+
+  const entrarComSenha = useCallback(
+    async (email: string, senha: string) => {
+      await api.post('/api/auth/login', { email, senha });
+      // Tudo que estava em cache era de "ninguém logado".
+      await cliente.invalidateQueries();
+    },
+    [cliente],
   );
 
-  const sair = useCallback(() => setUsuarioId(null), []);
+  const entrarComSso = useCallback(() => {
+    const destino = `${window.location.pathname}${window.location.search}`;
+    window.location.href = `/api/auth/sso?destino=${encodeURIComponent(destino)}`;
+  }, []);
 
-  const papel = sessao?.usuario.role ?? null;
-  const ehRh = papel === 'admin' || papel === 'rh';
+  const trocarSenha = useCallback(
+    async (senhaAtual: string, senhaNova: string) => {
+      await api.post('/api/auth/senha', { senhaAtual, senhaNova });
+      // `deveTrocarSenha` mudou; a sessão precisa ser relida.
+      await cliente.invalidateQueries({ queryKey: ['auth', 'me'] });
+    },
+    [cliente],
+  );
 
-  const equipesVisiveis = useMemo(() => {
-    if (!sessao) return [];
-    if (ehRh) return null; // sem recorte: enxerga a empresa toda
-    if (papel === 'gestor') {
-      return equipes.filter((e) => e.gestor_id === sessao.funcionario.id).map((e) => e.id);
-    }
-    return [sessao.funcionario.equipe_id];
-  }, [sessao, ehRh, papel, equipes]);
+  const sair = useCallback(async () => {
+    const { redirecionar } = await api.post<{ redirecionar: string | null }>('/api/auth/logout');
+    // Limpa a base em memória antes de sair: os dados são do usuário anterior.
+    cliente.clear();
+    // Logout federado, quando o provedor oferece; senão volta ao login.
+    window.location.href = redirecionar ?? '/login';
+  }, [cliente]);
+
+  const atual = sessao.data ?? null;
 
   const valor = useMemo<ContextoAuth>(
     () => ({
-      sessao,
-      entrar,
+      sessao: atual,
+      carregando: sessao.isLoading || config.isLoading,
+      metodos: config.data ?? METODOS_PADRAO,
+      entrarComSenha,
+      entrarComSso,
+      trocarSenha,
       sair,
-      papel,
-      ehRh,
-      podeAprovar: ehRh,
-      podeGerenciar: ehRh,
-      equipesVisiveis,
+      papel: atual?.papel ?? null,
+      ehRh: atual?.ehRh ?? false,
+      ehAdmin: atual?.papel === 'admin',
+      podeAprovar: atual?.ehRh ?? false,
+      podeGerenciar: atual?.ehRh ?? false,
+      equipesVisiveis: atual?.equipesVisiveis ?? [],
     }),
-    [sessao, entrar, sair, papel, ehRh, equipesVisiveis],
+    [
+      atual,
+      sessao.isLoading,
+      config.isLoading,
+      config.data,
+      entrarComSenha,
+      entrarComSso,
+      trocarSenha,
+      sair,
+    ],
   );
 
   return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;
