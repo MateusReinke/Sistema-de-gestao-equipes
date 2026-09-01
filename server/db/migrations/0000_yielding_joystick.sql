@@ -94,6 +94,19 @@ CREATE TABLE "comunicados" (
 	"fixado" boolean DEFAULT false NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "configuracao_auth" (
+	"id" smallint PRIMARY KEY DEFAULT 1 NOT NULL,
+	"senha_local_ativa" boolean DEFAULT true NOT NULL,
+	"sso_ativo" boolean DEFAULT false NOT NULL,
+	"oidc_issuer" text,
+	"oidc_client_id" text,
+	"oidc_client_secret" text,
+	"oidc_escopo" text DEFAULT 'openid profile email' NOT NULL,
+	"sso_validado_em" timestamp with time zone,
+	"atualizado_em" timestamp with time zone,
+	"atualizado_por" varchar(40)
+);
+--> statement-breakpoint
 CREATE TABLE "contatos_cliente" (
 	"id" varchar(40) PRIMARY KEY NOT NULL,
 	"cliente_id" varchar(40) NOT NULL,
@@ -289,7 +302,13 @@ CREATE TABLE "usuarios" (
 	"funcionario_id" varchar(40) NOT NULL,
 	"email" text NOT NULL,
 	"role" "papel_usuario" NOT NULL,
-	"ativo" boolean DEFAULT true NOT NULL
+	"ativo" boolean DEFAULT true NOT NULL,
+	"senha_hash" text,
+	"deve_trocar_senha" boolean DEFAULT false NOT NULL,
+	"senha_atualizada_em" timestamp with time zone,
+	"tentativas_falhas" smallint DEFAULT 0 NOT NULL,
+	"bloqueado_ate" timestamp with time zone,
+	"ultimo_acesso_em" timestamp with time zone
 );
 --> statement-breakpoint
 ALTER TABLE "atendimento_equipes" ADD CONSTRAINT "atendimento_equipes_cliente_id_clientes_id_fk" FOREIGN KEY ("cliente_id") REFERENCES "public"."clientes"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint

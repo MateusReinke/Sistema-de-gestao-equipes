@@ -10,6 +10,7 @@ import { NaoAutenticado, rotasAuth } from './rotas/auth';
 import { rotasCrud } from './rotas/crud';
 import { rotasDados } from './rotas/dados';
 import { rotasAcoes } from './rotas/acoes';
+import { rotasAdministracao } from './rotas/administracao';
 
 const raiz = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -33,9 +34,21 @@ export async function criarApp(): Promise<FastifyInstance> {
     if (erro instanceof NaoAutenticado) return reply.code(401).send({ erro: erro.message });
     if (erro instanceof SemPermissao) return reply.code(403).send({ erro: erro.message });
 
-    const codigo = (erro as { code?: string }).code;
+    const { code: codigo, statusCode: status, message } = erro as {
+      code?: string;
+      statusCode?: number;
+      message?: string;
+    };
+
     if (codigo && MENSAGEM_POR_CODIGO[codigo]) {
       return reply.code(409).send({ erro: MENSAGEM_POR_CODIGO[codigo] });
+    }
+
+    // Erros do próprio Fastify (corpo malformado, payload grande demais) já
+    // trazem o status certo. Sem isto virariam 500 e esconderiam a causa real.
+    if (status && status >= 400 && status < 500) {
+      req.log.warn({ erro }, 'requisição recusada');
+      return reply.code(status).send({ erro: message ?? 'Requisição inválida.' });
     }
 
     req.log.error({ erro }, 'erro não tratado');
@@ -46,6 +59,7 @@ export async function criarApp(): Promise<FastifyInstance> {
   app.get('/api/saude', async () => ({ ok: true, ambiente: config.ambiente }));
 
   rotasAuth(app);
+  rotasAdministracao(app);
   rotasDados(app);
   rotasAcoes(app);
   rotasCrud(app);

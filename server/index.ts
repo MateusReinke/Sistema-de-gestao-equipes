@@ -1,5 +1,6 @@
 import { config, validarConfig } from './config';
 import { criarApp } from './app';
+import { metodosDisponiveis } from './auth/configuracao';
 import { limparExpirados } from './auth/sessao';
 import { sql } from './db/index';
 
@@ -25,7 +26,12 @@ process.on('SIGINT', () => void encerrar('SIGINT'));
 
 await app.listen({ port: config.porta, host: '0.0.0.0' });
 
+const metodos = await metodosDisponiveis();
+const formas = [metodos.senhaLocal && 'senha local', metodos.sso && 'SSO'].filter(Boolean);
+
 console.log(
-  `Lumini API em http://localhost:${config.porta} · ` +
-    (config.ssoConfigurado ? 'SSO ativo' : 'modo de demonstração (sem SSO)'),
+  `Lumini API em http://localhost:${config.porta} · entrada por ${formas.join(' e ') || 'nenhum método (configure em Administração)'}`,
 );
+if (metodos.senhaLocalForcada) {
+  console.warn('[auth] senha local ligada por ALLOW_LOCAL_LOGIN, apesar de desativada na tela.');
+}

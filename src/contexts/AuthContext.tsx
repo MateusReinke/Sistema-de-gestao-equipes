@@ -4,6 +4,10 @@
  * O papel e o alcance de equipes vêm de `/api/auth/me`; aqui eles só orientam
  * o que a interface mostra. Quem realmente autoriza é a API — esconder um
  * botão não impede ninguém de chamar a rota.
+ *
+ * Duas formas de entrar convivem: senha cadastrada na própria central e SSO
+ * corporativo. Quais estão no ar vem de `/api/auth/config`, que o
+ * administrador controla pela tela de Autenticação.
  */
 import React, { createContext, useCallback, useContext, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -17,26 +21,32 @@ export interface Sessao {
   ehRh: boolean;
   /** Equipes sob responsabilidade do usuário; `null` significa "todas". */
   equipesVisiveis: string[] | null;
+  /** Senha emitida por outra pessoa: precisa ser trocada antes de seguir. */
+  deveTrocarSenha: boolean;
 }
 
-interface ConfigAuth {
+/** Formas de entrada oferecidas por esta instalação. */
+export interface MetodosEntrada {
+  senhaLocal: boolean;
   sso: boolean;
-  modoDemonstracao: boolean;
+  /** Senha local ligada por variável de ambiente, apesar de desligada na tela. */
+  senhaLocalForcada: boolean;
 }
 
 interface ContextoAuth {
   sessao: Sessao | null;
   carregando: boolean;
-  /** O ambiente usa SSO corporativo? */
-  sso: boolean;
-  /** Login sem senha por seleção de perfil, disponível fora de produção. */
-  entrarDemonstracao: (email: string) => Promise<void>;
+  metodos: MetodosEntrada;
+
+  entrarComSenha: (email: string, senha: string) => Promise<void>;
   /** Manda o navegador para o provedor de identidade. */
   entrarComSso: () => void;
+  trocarSenha: (senhaAtual: string, senhaNova: string) => Promise<void>;
   sair: () => Promise<void>;
 
   papel: UserRole | null;
   ehRh: boolean;
+  ehAdmin: boolean;
   podeAprovar: boolean;
   podeGerenciar: boolean;
   equipesVisiveis: string[] | null;
@@ -44,13 +54,16 @@ interface ContextoAuth {
 
 const Contexto = createContext<ContextoAuth | null>(null);
 
+/** Enquanto a configuração não chega, supomos senha local: é o caso comum. */
+const METODOS_PADRAO: MetodosEntrada = { senhaLocal: true, sso: false, senhaLocalForcada: false };
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const cliente = useQueryClient();
 
   const config = useQuery({
     queryKey: ['auth', 'config'],
-    queryFn: () => api.get<ConfigAuth>('/api/auth/config'),
-    staleTime: Infinity,
+    queryFn: () => api.get<MetodosEntrada>('/api/auth/config'),
+    staleTime: 5 * 60_000,
   });
 
   const sessao = useQuery({
@@ -67,9 +80,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     retry: false,
   });
 
-  const entrarDemonstracao = useCallback(
-    async (email: string) => {
-      await api.post('/api/auth/demo', { email });
+  const entrarComSenha = useCallback(
+    async (email: string, senha: string) => {
+      await api.post('/api/auth/login', { email, senha });
+      // Tudo que estava em cache era de "ninguém logado".
       await cliente.invalidateQueries();
     },
     [cliente],
@@ -77,8 +91,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const entrarComSso = useCallback(() => {
     const destino = `${window.location.pathname}${window.location.search}`;
-    window.location.href = `/api/auth/login?destino=${encodeURIComponent(destino)}`;
+    window.location.href = `/api/auth/sso?destino=${encodeURIComponent(destino)}`;
   }, []);
+
+  const trocarSenha = useCallback(
+    async (senhaAtual: string, senhaNova: string) => {
+      await api.post('/api/auth/senha', { senhaAtual, senhaNova });
+      // `deveTrocarSenha` mudou; a sessão precisa ser relida.
+      await cliente.invalidateQueries({ queryKey: ['auth', 'me'] });
+    },
+    [cliente],
+  );
 
   const sair = useCallback(async () => {
     const { redirecionar } = await api.post<{ redirecionar: string | null }>('/api/auth/logout');
@@ -94,17 +117,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       sessao: atual,
       carregando: sessao.isLoading || config.isLoading,
-      sso: config.data?.sso ?? false,
-      entrarDemonstracao,
+      metodos: config.data ?? METODOS_PADRAO,
+      entrarComSenha,
       entrarComSso,
+      trocarSenha,
       sair,
       papel: atual?.papel ?? null,
       ehRh: atual?.ehRh ?? false,
+      ehAdmin: atual?.papel === 'admin',
       podeAprovar: atual?.ehRh ?? false,
       podeGerenciar: atual?.ehRh ?? false,
       equipesVisiveis: atual?.equipesVisiveis ?? [],
     }),
-    [atual, sessao.isLoading, config.isLoading, config.data, entrarDemonstracao, entrarComSso, sair],
+    [
+      atual,
+      sessao.isLoading,
+      config.isLoading,
+      config.data,
+      entrarComSenha,
+      entrarComSso,
+      trocarSenha,
+      sair,
+    ],
   );
 
   return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;

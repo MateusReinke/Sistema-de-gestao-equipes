@@ -5,7 +5,7 @@ plantões, férias, ausências e solicitações de acesso — com apoio direto a
 
 **Front:** React 18 + TypeScript + Vite + Tailwind + shadcn/ui
 **API:** Fastify + Drizzle + PostgreSQL
-**Acesso:** SSO corporativo por OpenID Connect
+**Acesso:** senha local, com SSO corporativo (OpenID Connect) configurável pela tela
 
 ---
 
@@ -114,21 +114,23 @@ npm run dev               # front em :8080, com proxy de /api para a API
 npm run typecheck         # front
 npm run typecheck:server  # servidor
 npm run lint
-npm test                  # 66 testes das regras de negócio
+npm test                  # 96 testes das regras de negócio e de senha
 npm run build
 npm run icons             # regenera favicon/apple-touch-icon/og-image
 ```
 
 ### Acesso de demonstração
 
-Sem `OIDC_*` configurado, a tela de login lista os perfis do seed para entrada
-rápida, sem senha:
+O seed cria todos os usuários com a mesma senha, `central-demo-2026`. Ela só
+existe em base semeada — numa base real o acesso nasce pela tela de
+administração, com senha temporária individual.
 
 | E-mail | Papel |
 | --- | --- |
 | `helena.braga@lumini.com.br` | Administrador |
 | `rafael.antunes@lumini.com.br` | RH |
 | `carlos.meireles@lumini.com.br` | Gestor |
+| `elena.souza@lumini.com.br` | Gestor |
 | `ana.silva@lumini.com.br` | Colaborador |
 
 ## Arquitetura
@@ -167,20 +169,45 @@ Quem autoriza de fato é a API, em `server/auth/permissoes.ts`:
 O recorte acontece na consulta, não na tela: um colaborador que chame
 `/api/dados` recebe as férias da própria equipe, não as de todo mundo.
 
-### Login por SSO
+### Entrada
 
-Fluxo authorization code com PKCE. O provedor autentica; a central confere o
-e-mail verificado contra a tabela `usuarios`. **Ter conta no diretório da
-empresa não dá acesso** — o cadastro na central é do RH.
+Duas formas convivem, e quais estão no ar é decidido em **Administração ›
+Autenticação**, não por variável de ambiente:
 
-Redirect a registrar no provedor: `<APP_URL>/api/auth/callback`
+**Senha local.** É como a central começa. O administrador emite uma senha
+temporária pela tela, entrega à pessoa, e ela troca no primeiro acesso. As
+senhas são guardadas com `scrypt` (N=2¹⁶), parâmetros gravados junto do hash
+para poderem ser endurecidos depois sem invalidar o que já existe.
+
+A política de força vive em `src/lib/senha.ts` e é a **mesma** nos dois lados:
+o formulário avisa enquanto se digita e a API recusa na gravação. Mínimo de 12
+caracteres, sem as campeãs de vazamento e sem o próprio nome ou e-mail — uma
+frase curta passa, `Senha@123` não.
+
+Cinco tentativas erradas bloqueiam por 15 minutos, dobrando a cada novo bloco
+até um teto de 8 horas. O administrador destrava pela tela. E-mail inexistente
+e senha errada devolvem a mesma resposta, no mesmo tempo, para não revelar
+quem tem cadastro.
+
+**SSO corporativo.** Fluxo authorization code com PKCE. O provedor autentica;
+a central confere o e-mail verificado contra a tabela `usuarios`. **Ter conta
+no diretório da empresa não dá acesso** — o cadastro na central é do RH.
+
+Emissor, client id e client secret são cadastrados pela tela. O segredo é
+guardado cifrado (AES-256-GCM, chave derivada de `APP_SECRET_KEY`) e nunca
+volta em claro: a tela mostra só a máscara. O redirect a registrar no provedor
+aparece pronto para copiar, e é `<APP_URL>/api/auth/callback`.
+
+**Trava contra auto-trancamento.** Desligar a senha local só é permitido com o
+SSO ativo *e* uma conexão testada com sucesso naquela configuração — mudar o
+emissor, o client id ou o segredo derruba a validação. Se ainda assim o
+provedor cair, subir com `ALLOW_LOCAL_LOGIN=true` reabre a senha local sem
+mexer no banco.
 
 A sessão é um identificador opaco em cookie `httpOnly`; o estado fica no
 banco. Apagar a linha em `sessoes` derruba o acesso na hora — é o que o
 desligamento faz, junto com desativar o usuário e limpar os plantões futuros.
-
-Sem `OIDC_*` configurado o servidor sobe em **modo de demonstração**, com
-login por seleção de perfil. Em produção esse modo é recusado no boot.
+Trocar ou redefinir a senha encerra as outras sessões da pessoa.
 
 ## Banco de dados
 
@@ -193,6 +220,7 @@ npm run db:generate          # gera a migration a partir do schema
 npm run db:migrate           # aplica as pendentes
 npm run db:seed              # carrega a massa de demonstração
 npm run db:seed -- --reset   # apaga tudo e recarrega
+npm run senha:hash           # hash de senha, para o primeiro admin
 npm run db:studio            # navegador de dados do Drizzle
 ```
 
@@ -251,7 +279,8 @@ server/
     crud.ts              PUT/DELETE genéricos sobre o registro
     dados.ts             carga inicial, recortada por papel
     acoes.ts             decidir solicitação, registrar desligamento
-    auth.ts              login, callback, logout, sessão atual
+    auth.ts              login por senha, SSO, logout, sessão atual
+    administracao.ts     configuração de autenticação e senhas de usuários
   db/
     schema.ts            schema Drizzle
     migrations/          SQL versionado
@@ -300,8 +329,9 @@ docker compose exec web npx tsx server/db/seed.ts
 
 ### Primeiro acesso em produção
 
-O SSO autentica, mas o acesso à central vem da tabela `usuarios`. Numa base
-vazia ninguém entra. Crie o primeiro administrador direto no banco:
+Numa base vazia ninguém entra: não há usuário para o qual emitir senha. Crie o
+primeiro administrador direto no banco e, na linha de `usuarios`, deixe
+`deve_trocar_senha` ligado — assim a senha provisória vale para uma entrada só.
 
 ```sql
 INSERT INTO departamentos (id, nome, sigla, centro_custo)
@@ -314,9 +344,22 @@ INSERT INTO funcionarios
   VALUES ('f1', '000001', 'Nome da Pessoa', 'pessoa@lumini.com.br',
           'Administrador', 'dep1', 'eq1', 'clt', 'hibrido',
           '2020-01-01', '1990-01-01', 'ativo');
-INSERT INTO usuarios (id, funcionario_id, email, role, ativo)
-  VALUES ('u1', 'f1', 'pessoa@lumini.com.br', 'admin', true);
+INSERT INTO usuarios (id, funcionario_id, email, role, ativo, senha_hash,
+                      deve_trocar_senha)
+  VALUES ('u1', 'f1', 'pessoa@lumini.com.br', 'admin', true,
+          '<hash>', true);
 ```
 
-O `email` em `usuarios` precisa ser exatamente o que o provedor de identidade
-devolve. A partir daí o resto do cadastro é feito pela própria interface.
+O `<hash>` sai daqui — sem argumento o script sorteia uma senha temporária e
+mostra as duas:
+
+```bash
+docker compose exec web npm run senha:hash
+docker compose exec web npm run senha:hash -- 'a-senha-provisoria'
+```
+
+Daí em diante tudo é feito pela interface: esse administrador entra, troca a
+senha na hora e cadastra o resto do time em **Administração › Autenticação**.
+
+Se depois ligar o SSO, o `email` em `usuarios` precisa ser exatamente o que o
+provedor de identidade devolve — é por ele que os dois lados se encontram.

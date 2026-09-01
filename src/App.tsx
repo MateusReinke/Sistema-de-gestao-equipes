@@ -12,6 +12,7 @@ import { AppLayout } from '@/components/AppLayout';
 import type { UserRole } from '@/types/sgo';
 
 import LoginPage from '@/pages/LoginPage';
+import TrocarSenhaPage from '@/pages/TrocarSenhaPage';
 import NotFound from '@/pages/NotFound';
 
 /**
@@ -32,6 +33,7 @@ const AusenciasPage = lazy(() => import('@/pages/AusenciasPage'));
 const AcessosPage = lazy(() => import('@/pages/AcessosPage'));
 const ComunicadosPage = lazy(() => import('@/pages/ComunicadosPage'));
 const AuditoriaPage = lazy(() => import('@/pages/AuditoriaPage'));
+const AutenticacaoPage = lazy(() => import('@/pages/AutenticacaoPage'));
 
 const queryClient = new QueryClient();
 
@@ -70,6 +72,9 @@ function Protegida({ children, papeis }: { children: React.ReactNode; papeis?: U
   // o login a cada recarga de página.
   if (carregando) return <TelaCarregando />;
   if (!sessao) return <Navigate to="/login" replace />;
+  // Senha emitida por outra pessoa: nada mais abre até ser trocada. A API
+  // aplica a mesma regra — aqui é só para a pessoa não bater numa parede.
+  if (sessao.deveTrocarSenha) return <TrocarSenhaPage />;
   if (papeis && (papel === null || !papeis.includes(papel))) return <Navigate to="/" replace />;
   return (
     <AppLayout>
@@ -80,6 +85,7 @@ function Protegida({ children, papeis }: { children: React.ReactNode; papeis?: U
 
 const GESTAO: UserRole[] = ['admin', 'rh', 'gestor'];
 const RH: UserRole[] = ['admin', 'rh'];
+const ADMIN: UserRole[] = ['admin'];
 
 function Rotas() {
   const { sessao, carregando } = useAuth();
@@ -104,6 +110,7 @@ function Rotas() {
       <Route path="/acessos" element={<Protegida><AcessosPage /></Protegida>} />
       <Route path="/comunicados" element={<Protegida><ComunicadosPage /></Protegida>} />
       <Route path="/auditoria" element={<Protegida papeis={RH}><AuditoriaPage /></Protegida>} />
+      <Route path="/autenticacao" element={<Protegida papeis={ADMIN}><AutenticacaoPage /></Protegida>} />
 
       <Route path="*" element={<NotFound />} />
     </Routes>

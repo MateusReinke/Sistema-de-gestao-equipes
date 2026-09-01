@@ -13,6 +13,10 @@ import { getTableName, sql as sqlOp } from 'drizzle-orm';
 import * as dados from '@/data/seed';
 import { db, sql } from './index';
 import * as t from './schema';
+import { gerarHash } from '../auth/senha';
+
+/** Senha dos perfis de demonstração. Só existe em base semeada. */
+const SENHA_DEMONSTRACAO = 'central-demo-2026';
 
 const reset = process.argv.includes('--reset');
 
@@ -51,7 +55,16 @@ try {
   await inserir(t.departamentos, dados.departamentos, 'departamentos');
   await inserir(t.equipes, dados.equipes, 'equipes');
   await inserir(t.funcionarios, dados.funcionarios, 'funcionários');
-  await inserir(t.usuarios, dados.usuarios, 'usuários');
+
+  // Todo usuário da demonstração recebe a mesma senha conhecida. Serve para
+  // desenvolvimento e homologação; numa base real o acesso é criado pela tela
+  // de administração, que emite senha temporária individual.
+  const hash = await gerarHash(SENHA_DEMONSTRACAO);
+  await inserir(
+    t.usuarios,
+    dados.usuarios.map((u) => ({ ...u, senha_hash: hash, deve_trocar_senha: false })),
+    'usuários',
+  );
 
   await inserir(t.clientes, dados.clientes, 'clientes');
   await inserir(t.contatosCliente, dados.contatosCliente, 'contatos de cliente');
@@ -74,6 +87,11 @@ try {
   await inserir(t.comunicados, dados.comunicados, 'comunicados');
 
   console.log('✓ seed concluído');
+  console.log(`\n  Entre com qualquer e-mail abaixo e a senha: ${SENHA_DEMONSTRACAO}`);
+  for (const u of dados.usuarios) {
+    const nome = dados.funcionarios.find((f) => f.id === u.funcionario_id)?.nome ?? '';
+    console.log(`    ${u.email.padEnd(34)} ${u.role.padEnd(12)} ${nome}`);
+  }
 } catch (erro) {
   console.error('✗ falha no seed:', erro);
   process.exitCode = 1;

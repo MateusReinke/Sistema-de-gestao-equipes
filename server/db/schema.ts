@@ -181,12 +181,59 @@ export const usuarios = pgTable(
     email: text('email').notNull(),
     role: papelUsuario('role').notNull(),
     ativo: boolean('ativo').notNull().default(true),
+
+    /**
+     * Hash scrypt da senha local. Nulo em quem só entra por SSO — o campo
+     * existir vazio é o que permite os dois métodos convivendo.
+     */
+    senha_hash: text('senha_hash'),
+    /** Senha temporária entregue pelo RH: obriga troca no primeiro acesso. */
+    deve_trocar_senha: boolean('deve_trocar_senha').notNull().default(false),
+    senha_atualizada_em: isoTimestamp('senha_atualizada_em'),
+
+    /* Contenção de força bruta, guardada no banco para sobreviver a restart. */
+    tentativas_falhas: smallint('tentativas_falhas').notNull().default(0),
+    bloqueado_ate: isoTimestamp('bloqueado_ate'),
+    ultimo_acesso_em: isoTimestamp('ultimo_acesso_em'),
   },
   (t) => ({
     // O e-mail é a chave que liga a identidade do SSO ao cadastro interno.
     emailUnico: uniqueIndex('usuarios_email_idx').on(t.email),
   }),
 );
+
+/**
+ * Configuração de autenticação, editável pela própria aplicação.
+ *
+ * Fica no banco, e não em variável de ambiente, para que o administrador ligue
+ * o SSO pela tela sem depender de redeploy. Linha única, fixada em `id = 1`.
+ */
+export const configuracaoAuth = pgTable('configuracao_auth', {
+  id: smallint('id').primaryKey().default(1),
+
+  /** Permite entrar com e-mail e senha cadastrados aqui. */
+  senha_local_ativa: boolean('senha_local_ativa').notNull().default(true),
+
+  sso_ativo: boolean('sso_ativo').notNull().default(false),
+  oidc_issuer: text('oidc_issuer'),
+  oidc_client_id: text('oidc_client_id'),
+  /**
+   * Client secret cifrado com AES-256-GCM (ver `auth/segredos.ts`). Um dump do
+   * banco, sozinho, não expõe o segredo do provedor.
+   */
+  oidc_client_secret: text('oidc_client_secret'),
+  oidc_escopo: text('oidc_escopo').notNull().default('openid profile email'),
+
+  /**
+   * Marca que a configuração passou por um teste de descoberta bem-sucedido.
+   * É o que autoriza desligar a senha local sem trancar todo mundo do lado de
+   * fora.
+   */
+  sso_validado_em: isoTimestamp('sso_validado_em'),
+
+  atualizado_em: isoTimestamp('atualizado_em'),
+  atualizado_por: varchar('atualizado_por', { length: 40 }),
+});
 
 /* ------------------------------------------------------------------ clientes */
 

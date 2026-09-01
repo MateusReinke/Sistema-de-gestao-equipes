@@ -11,9 +11,11 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { config } from '../config';
 import { db } from '../db/index';
 import * as t from '../db/schema';
+import { COLUNAS_USUARIO, comoPublico, type UsuarioPublico } from './usuario-publico';
 
 export interface Sessao {
-  usuario: typeof t.usuarios.$inferSelect;
+  /** Sem o hash da senha: esta linha chega ao navegador via /api/auth/me. */
+  usuario: UsuarioPublico;
   funcionario: typeof t.funcionarios.$inferSelect;
   sessaoId: string;
 }
@@ -55,7 +57,7 @@ export async function lerSessao(req: FastifyRequest): Promise<Sessao | null> {
   if (!id) return null;
 
   const [linha] = await db
-    .select({ usuario: t.usuarios, funcionario: t.funcionarios })
+    .select({ ...COLUNAS_USUARIO, funcionario: t.funcionarios })
     .from(t.sessoes)
     .innerJoin(t.usuarios, eq(t.usuarios.id, t.sessoes.usuario_id))
     .innerJoin(t.funcionarios, eq(t.funcionarios.id, t.usuarios.funcionario_id))
@@ -63,10 +65,12 @@ export async function lerSessao(req: FastifyRequest): Promise<Sessao | null> {
     .limit(1);
 
   if (!linha) return null;
-  // Usuário desativado ou funcionário desligado perde o acesso na hora.
-  if (!linha.usuario.ativo || linha.funcionario.status === 'desligado') return null;
 
-  return { ...linha, sessaoId: id };
+  const { funcionario, ...usuario } = linha;
+  // Usuário desativado ou funcionário desligado perde o acesso na hora.
+  if (!usuario.ativo || funcionario.status === 'desligado') return null;
+
+  return { usuario: comoPublico(usuario), funcionario, sessaoId: id };
 }
 
 export async function encerrarSessao(req: FastifyRequest, reply: FastifyReply): Promise<void> {

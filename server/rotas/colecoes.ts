@@ -63,6 +63,18 @@ export interface Colecao {
 /** `createInsertSchema` deriva do schema real, então não há como divergir. */
 const de = (tabela: Parameters<typeof createInsertSchema>[0]) => createInsertSchema(tabela).strict();
 
+/**
+ * Como `de`, mas sem os campos indicados.
+ *
+ * Usado em `usuarios`: hash de senha, contagem de tentativas e bloqueio são
+ * gerenciados pelas rotas de autenticação. Deixá-los no CRUD genérico
+ * permitiria a um administrador gravar um hash arbitrário.
+ */
+const deExceto = (tabela: Parameters<typeof createInsertSchema>[0], campos: string[]) =>
+  createInsertSchema(tabela)
+    .omit(Object.fromEntries(campos.map((c) => [c, true])) as never)
+    .strict();
+
 const nomeDe = (i: Record<string, unknown>) => String(i.nome ?? i.titulo ?? i.protocolo ?? i.id);
 
 export const COLECOES: Colecao[] = [
@@ -97,7 +109,14 @@ export const COLECOES: Colecao[] = [
     entidade: 'Usuário',
     // Conceder papel é o que define quem enxerga a empresa inteira.
     escrita: { tipo: 'admin' },
-    schema: de(t.usuarios),
+    schema: deExceto(t.usuarios, [
+      'senha_hash',
+      'deve_trocar_senha',
+      'senha_atualizada_em',
+      'tentativas_falhas',
+      'bloqueado_ate',
+      'ultimo_acesso_em',
+    ]),
     rotulo: (i) => String(i.email),
   },
 

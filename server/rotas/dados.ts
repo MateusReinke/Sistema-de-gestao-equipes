@@ -11,6 +11,7 @@ import type { FastifyInstance } from 'fastify';
 import { db } from '../db/index';
 import * as t from '../db/schema';
 import { ehRh, equipesVisiveis } from '../auth/permissoes';
+import { COLUNAS_USUARIO, comoPublico } from '../auth/usuario-publico';
 import { exigirSessao } from './auth';
 import { somarDias, hoje } from '@/lib/date';
 
@@ -113,7 +114,11 @@ export function rotasDados(app: FastifyInstance): void {
     const auditoria = rh
       ? await db.select().from(t.auditoria).orderBy(t.auditoria.em).limit(500)
       : [];
-    const usuarios = sessao.usuario.role === 'admin' ? await db.select().from(t.usuarios) : [];
+    // Projeção explícita: `select().from(usuarios)` traria o hash da senha.
+    const usuarios =
+      sessao.usuario.role === 'admin'
+        ? (await db.select(COLUNAS_USUARIO).from(t.usuarios)).map(comoPublico)
+        : [];
 
     return reply.send({
       janelaPlantoes: { de, ate },
