@@ -310,22 +310,92 @@ src/
 
 ## Deploy
 
+### Variáveis
+
+| Variável | Obrigatória | O que é |
+| --- | --- | --- |
+| `POSTGRES_PASSWORD` | sim¹ | Senha do Postgres embutido no compose |
+| `DATABASE_URL` | sim² | Conexão completa, para banco gerenciado |
+| `APP_URL` | **sim** | URL pública real, com `https` |
+| `APP_SECRET_KEY` | **sim** | Cifra o client secret do SSO no banco |
+| `APP_PORT` | não | Porta no host (padrão `8080`) |
+| `SESSION_HOURS` | não | Duração da sessão (padrão `8`) |
+| `ALLOW_LOCAL_LOGIN` | não | Reabre a senha local se o SSO cair |
+| `POSTGRES_USER` / `POSTGRES_DB` | não | Padrão `lumini` nos dois |
+| `OIDC_*` | não | Só semeiam a primeira leitura; depois manda a tela |
+
+¹ no caminho com banco junto · ² no caminho com banco gerenciado
+
+`APP_URL` com `http` faz o servidor **recusar subir** em produção: o cookie de
+sessão não é enviado por conexão insegura, e subir assim daria uma tela de
+login que nunca autentica. `APP_SECRET_KEY` sai de `openssl rand -base64 48` —
+guarde-a, porque trocá-la torna ilegível o client secret do SSO já gravado (a
+tela avisa, e basta redigitá-lo).
+
+### Caminho 1 — banco junto, no mesmo compose
+
+É o padrão. Você define só a senha; a `DATABASE_URL` é montada apontando para
+o serviço `db`, que guarda os dados no volume `pgdata`.
+
+```bash
+POSTGRES_PASSWORD=<senha forte>
+APP_URL=https://central.lumini.com.br
+APP_SECRET_KEY=<openssl rand -base64 48>
+```
+
+### Caminho 2 — Postgres gerenciado
+
+Definir `DATABASE_URL` no ambiente sobrepõe a montagem automática. Use quando
+o banco for do Coolify, RDS, Neon ou similar — aí o backup, a réplica e o
+upgrade de versão ficam com o provedor, não com você.
+
+```bash
+DATABASE_URL=postgres://usuario:senha@host:5432/lumini?sslmode=require
+```
+
+Nesse caso o serviço `db` do compose pode ser removido, junto com o
+`depends_on` e o volume `pgdata`.
+
+> **Senha com caractere especial** (`@ : / ? #`) precisa vir percent-encoded
+> na URL — `@` vira `%40`. Uma senha `sen@ha` gera
+> `postgres://lumini:sen@ha@db:5432/lumini`, que não conecta. Vale para os
+> dois caminhos.
+
 ### Coolify
 
 - **Build Pack**: `Docker Compose`
 - **Serviço principal**: `web`
 - **Porta do container**: `3000`
-- **Variáveis**: as de `.env.example`. `APP_URL` precisa ser a URL pública
-  real com `https` — o cookie de sessão não é enviado por conexão insegura, e
-  o servidor recusa subir se `APP_URL` for `http` em produção.
+- **Variáveis**: as da tabela acima, no painel do Coolify
 
-O `db:migrate` roda no start do container. O seed **não** roda sozinho: numa
-base real ele não deve rodar. Para carregar dados de exemplo num ambiente de
-homologação:
+### Migrations
+
+O container roda `server/db/migrate.ts` **antes** de a API atender, no próprio
+`CMD`. Um deploy nunca responde requisição contra schema desatualizado, e não
+há passo manual de migração.
+
+O seed **não** roda sozinho — numa base real ele não deve rodar. Para carregar
+dados de exemplo em homologação:
 
 ```bash
 docker compose exec web npx tsx server/db/seed.ts
 ```
+
+### Backup
+
+Com o banco gerenciado, é do provedor. Com o banco junto, é seu:
+
+```bash
+# cópia
+docker compose exec -T db pg_dump -U lumini lumini | gzip > backup-$(date +%F).sql.gz
+
+# restauração numa base vazia
+gunzip -c backup-2026-09-01.sql.gz | docker compose exec -T db psql -U lumini lumini
+```
+
+Vale agendar isso num cron do host. O volume `pgdata` sobrevive a
+`docker compose up --build`, mas não a um `docker compose down -v` — essa
+flag apaga o volume.
 
 ### Primeiro acesso em produção
 
