@@ -1,7 +1,8 @@
 import { cn } from '@/lib/utils';
 
 /**
- * Marca da Lumini: quatro círculos translúcidos sobrepostos.
+ * Marca da Lumini: três círculos sobrepostos com um círculo branco onde os
+ * três se encontram.
  *
  * O SVG fica inline (e não como `<img>`) para herdar tamanho por classe e não
  * piscar em branco durante o carregamento — o mesmo desenho está em
@@ -15,10 +16,10 @@ export function LogoMarca({ className }: { className?: string }) {
       role="img"
       aria-label="Lumini IT Solutions"
     >
-      <circle cx="26.5" cy="24" r="15" fill="#F0873A" opacity=".88" />
-      <circle cx="41" cy="27.5" r="13.5" fill="#E8543F" opacity=".88" />
-      <circle cx="33" cy="41" r="14" fill="#FBBF24" opacity=".88" />
-      <circle cx="21" cy="39.5" r="11" fill="#2E9BD4" opacity=".88" />
+      <circle cx="30" cy="22" r="16" fill="#F0645C" />
+      <circle cx="40" cy="37" r="17" fill="#F5A623" />
+      <circle cx="21" cy="38" r="13" fill="#17A8D8" />
+      <circle cx="29" cy="32" r="6.5" fill="#FFFFFF" />
     </svg>
   );
 }

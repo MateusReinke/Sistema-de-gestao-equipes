@@ -11,8 +11,11 @@
  * única cor de ação e tipografia geométrica nos títulos. Os tons dos círculos
  * da logo entram como paleta de apoio em gráficos e categorias.
  *
- * As cores foram lidas de uma captura do site, então podem estar a um tom de
- * distância do valor exato — ajustar `--brand-*` aqui reveste o app inteiro.
+ * `--brand-coral`, `--brand-orange` e `--brand-blue` vêm do arquivo oficial
+ * da logo. `--brand-navy`, `--brand-amber`, `--brand-navy-deep` e
+ * `--brand-gold` seguem lidos de uma captura do site — podem estar a um tom
+ * de distância do valor exato, o que é fácil de corrigir aqui quando o
+ * material oficial dessas também chegar.
  *
  * Cada cor semântica tem três papéis:
  *   --x            cor cheia (fundo de botão, preenchimento de gráfico)
@@ -25,10 +28,10 @@
     --brand-navy: 221 69% 14%;
     --brand-navy-deep: 219 74% 8%;
     --brand-amber: 37 96% 61%;
-    --brand-blue: 211 66% 50%;
+    --brand-blue: 195 81% 47%;
     /* Tons dos círculos da logo, usados como paleta categórica. */
-    --brand-orange: 26 86% 58%;
-    --brand-coral: 8 78% 58%;
+    --brand-orange: 37 91% 55%;
+    --brand-coral: 3 83% 65%;
     --brand-gold: 42 96% 56%;
 
     --background: 210 24% 97%;
