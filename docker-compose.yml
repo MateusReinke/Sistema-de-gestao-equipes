@@ -45,8 +45,19 @@ services:
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
       OIDC_SCOPE: ${OIDC_SCOPE:-openid profile email}
       SESSION_HOURS: ${SESSION_HOURS:-8}
+      # Primeiro administrador, criado automaticamente se a base subir vazia
+      # (ver server/db/bootstrap-admin.ts). Sem ADMIN_SENHA, uma temporária é
+      # sorteada e sai só no log do deploy.
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_NOME: ${ADMIN_NOME:-}
+      ADMIN_SENHA: ${ADMIN_SENHA:-}
     ports:
-      - '${APP_PORT:-8080}:3000'
+      # Porta fixa, não por variável: a Coolify tem bugs conhecidos de
+      # interpolação de ${VAR} dentro de `ports:` (coollabsio/coolify#9136,
+      # #4961, #8953) — a variável às vezes não chega e cai no valor padrão
+      # do compose, ignorando o que foi definido na interface. Pra trocar a
+      # porta publicada, edite o número abaixo e faça um novo deploy.
+      - '8081:3000'
 
 volumes:
   pgdata:
