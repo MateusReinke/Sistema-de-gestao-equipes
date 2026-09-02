@@ -21,6 +21,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Avatar, Aviso, BadgeStatus, CabecalhoPagina, Campo, EstadoVazio } from '@/components/comum';
+import { SeletorDepartamento } from '@/components/organizacao/SeletorDepartamento';
 import { useDados, novoId } from '@/data/store';
 import { useAuth } from '@/contexts/AuthContext';
 import { calcularSaldoFerias, formatarTempoDeCasa, idade } from '@/lib/rh';
@@ -356,12 +357,10 @@ export default function FuncionariosPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label>Departamento</Label>
-                  <Select value={emEdicao.departamento_id} onValueChange={(v) => setEmEdicao({ ...emEdicao, departamento_id: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {departamentos.map((d) => <SelectItem key={d.id} value={d.id}>{d.nome}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <SeletorDepartamento
+                    value={emEdicao.departamento_id}
+                    onChange={(v) => setEmEdicao({ ...emEdicao, departamento_id: v ?? '' })}
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <Label>Equipe</Label>

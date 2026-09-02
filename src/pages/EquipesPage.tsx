@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, Aviso, BadgeStatus, CabecalhoPagina, EstadoVazio } from '@/components/comum';
+import { SeletorDepartamento } from '@/components/organizacao/SeletorDepartamento';
 import { useDados, novoId } from '@/data/store';
 import { useAuth } from '@/contexts/AuthContext';
 import { equipesSemCobertura } from '@/lib/rh';
@@ -259,18 +260,11 @@ export default function EquipesPage() {
 
               <div className="space-y-1.5">
                 <Label>Departamento</Label>
-                <Select
-                  value={emEdicao.departamento_id ?? 'nenhum'}
-                  onValueChange={(v) =>
-                    setEmEdicao({ ...emEdicao, departamento_id: v === 'nenhum' ? undefined : v })
-                  }
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="nenhum">Sem departamento</SelectItem>
-                    {departamentos.map((d) => <SelectItem key={d.id} value={d.id}>{d.nome}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <SeletorDepartamento
+                  value={emEdicao.departamento_id}
+                  onChange={(v) => setEmEdicao({ ...emEdicao, departamento_id: v })}
+                  permiteVazio
+                />
               </div>
 
               <Aviso tom="info">
