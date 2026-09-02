@@ -5,6 +5,7 @@ import {
   Download,
   FileWarning,
   Gauge,
+  Loader2,
   Plus,
   Search,
   Wallet,
@@ -31,6 +32,7 @@ import {
 } from '@/components/comum';
 import { FichaCliente } from '@/components/clientes/FichaCliente';
 import { useDados, novoId } from '@/data/store';
+import { api, ErroApi } from '@/data/api';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   contratosParaRenovar,
@@ -80,6 +82,7 @@ export default function ClientesPage() {
   const [emEdicao, setEmEdicao] = useState<Cliente | null>(null);
   const [ehNovo, setEhNovo] = useState(false);
   const [servicoEmEdicao, setServicoEmEdicao] = useState<Servico | null>(null);
+  const [buscandoCnpj, setBuscandoCnpj] = useState(false);
 
   const hojeIso = hoje();
   const nomeDe = (id?: string) => funcionarios.find((f) => f.id === id)?.nome ?? '—';
@@ -149,6 +152,33 @@ export default function ClientesPage() {
     salvarCliente({ ...emEdicao, nome: emEdicao.nome.trim() });
     toast.success(ehNovo ? 'Cliente cadastrado.' : 'Cliente atualizado.');
     setEmEdicao(null);
+  };
+
+  /** Preenche nome, razão social e segmento a partir do CNPJ digitado. */
+  const buscarPorCnpj = async () => {
+    if (!emEdicao) return;
+    const digitos = emEdicao.cnpj.replace(/\D/g, '');
+    if (digitos.length !== 14) return toast.error('Informe um CNPJ com 14 dígitos.');
+
+    setBuscandoCnpj(true);
+    try {
+      const dados = await api.get<{ razao_social: string; nome_fantasia: string; segmento: string }>(
+        `/api/consultas/cnpj/${digitos}`,
+      );
+      setEmEdicao((atual) =>
+        atual && {
+          ...atual,
+          nome: dados.nome_fantasia || atual.nome,
+          razao_social: dados.razao_social || atual.razao_social,
+          segmento: dados.segmento || atual.segmento,
+        },
+      );
+      toast.success('Dados preenchidos a partir do CNPJ.');
+    } catch (erro) {
+      toast.error(erro instanceof ErroApi ? erro.message : 'Não foi possível consultar o CNPJ.');
+    } finally {
+      setBuscandoCnpj(false);
+    }
   };
 
   const salvarCatalogo = () => {
@@ -508,14 +538,37 @@ export default function ClientesPage() {
                 )}
               </CampoForm>
               <div className="grid grid-cols-2 gap-3">
-                <CampoForm rotulo="CNPJ">
+                <CampoForm rotulo="CNPJ" dica="Busca preenche nome, razão social e segmento.">
                   {(id) => (
-                    <Input
-                      id={id}
-                      value={emEdicao.cnpj}
-                      placeholder="00.000.000/0001-00"
-                      onChange={(e) => setEmEdicao({ ...emEdicao, cnpj: e.target.value })}
-                    />
+                    <div className="flex gap-2">
+                      <Input
+                        id={id}
+                        value={emEdicao.cnpj}
+                        placeholder="00.000.000/0001-00"
+                        onChange={(e) => setEmEdicao({ ...emEdicao, cnpj: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            void buscarPorCnpj();
+                          }
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="shrink-0"
+                        disabled={buscandoCnpj}
+                        onClick={buscarPorCnpj}
+                        title="Buscar dados pelo CNPJ"
+                      >
+                        {buscandoCnpj ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Search className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
                   )}
                 </CampoForm>
                 <CampoForm rotulo="Segmento">
