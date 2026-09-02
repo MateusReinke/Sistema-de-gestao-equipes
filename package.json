@@ -18,6 +18,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx server/db/migrate.ts",
     "db:seed": "tsx server/db/seed.ts",
+    "db:bootstrap-admin": "tsx server/db/bootstrap-admin.ts",
     "senha:hash": "tsx server/db/hash-senha.ts",
     "db:studio": "drizzle-kit studio",
     "typecheck:server": "tsc --noEmit -p server/tsconfig.json"

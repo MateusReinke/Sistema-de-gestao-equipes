@@ -93,7 +93,8 @@ docker compose up --build -d
 docker compose exec web npx tsx server/db/seed.ts    # massa inicial, opcional
 ```
 
-Disponível em `http://localhost:8080` (ajuste com `APP_PORT`).
+Disponível em `http://localhost:8081` (porta fixa em `docker-compose.yml`,
+não por variável — edite o `ports:` do serviço `web` para trocar).
 
 ### Local, sem Docker
 
@@ -373,13 +374,19 @@ src/
 | `DATABASE_URL` | sim² | Conexão completa, para banco gerenciado |
 | `APP_URL` | **sim** | URL pública real, com `https` |
 | `APP_SECRET_KEY` | **sim** | Cifra o client secret do SSO no banco |
-| `APP_PORT` | não | Porta no host (padrão `8080`) |
 | `SESSION_HOURS` | não | Duração da sessão (padrão `8`) |
 | `ALLOW_LOCAL_LOGIN` | não | Reabre a senha local se o SSO cair |
 | `POSTGRES_USER` / `POSTGRES_DB` | não | Padrão `lumini` nos dois |
 | `OIDC_*` | não | Só semeiam a primeira leitura; depois manda a tela |
+| `ADMIN_EMAIL` / `ADMIN_NOME` / `ADMIN_SENHA` | não | Primeiro administrador, só numa base vazia |
 
 ¹ no caminho com banco junto · ² no caminho com banco gerenciado
+
+A porta publicada no host **não é uma variável**: fica fixa em `8081` no
+`ports:` de `docker-compose.yml`. A Coolify tem bugs conhecidos interpolando
+`${VAR}` nesse campo especificamente (coollabsio/coolify#9136, #4961, #8953),
+então em vez de depender disso, troque o número direto no arquivo e faça um
+novo deploy.
 
 `APP_URL` com `http` faz o servidor **recusar subir** em produção: o cookie de
 sessão não é enviado por conexão insegura, e subir assim daria uma tela de
@@ -454,9 +461,27 @@ flag apaga o volume.
 
 ### Primeiro acesso em produção
 
-Numa base vazia ninguém entra: não há usuário para o qual emitir senha. Crie o
-primeiro administrador direto no banco e, na linha de `usuarios`, deixe
-`deve_trocar_senha` ligado — assim a senha provisória vale para uma entrada só.
+Automático: se o container sobe contra uma base sem nenhum usuário, ele cria
+um administrador (role `admin`, acesso completo) antes da API atender — ver
+`server/db/bootstrap-admin.ts`, chamado pelo `CMD` do `Dockerfile` logo depois
+da migration. Rodar de novo em cada deploy não duplica nada; se já existe
+qualquer usuário, o passo só constata isso e sai.
+
+`ADMIN_EMAIL` e `ADMIN_NOME` (opcionais, ver `.env.example`) escolhem a
+identidade; sem `ADMIN_SENHA`, uma temporária é sorteada e sai só no log do
+deploy — **anote na hora**, ela não é gravada em lugar nenhum e não aparece de
+novo. Em ambos os casos `deve_trocar_senha` fica ligado: a senha provisória
+vale para uma entrada só, e dali em diante é tudo pela interface — esse
+administrador troca a senha na hora e cadastra o resto do time em
+**Administração › Autenticação**.
+
+Se depois ligar o SSO, o `email` desse usuário precisa ser exatamente o que o
+provedor de identidade devolve — é por ele que os dois lados se encontram.
+
+**Recuperação manual** (senha perdida do log, ou quer um administrador com
+identidade específica desde o início, sem esperar o bootstrap automático):
+insira direto no banco, com o hash saindo de `npm run senha:hash` (sem
+argumento sorteia uma senha e mostra as duas):
 
 ```sql
 INSERT INTO departamentos (id, nome, sigla, centro_custo)
@@ -475,16 +500,10 @@ INSERT INTO usuarios (id, funcionario_id, email, role, ativo, senha_hash,
           '<hash>', true);
 ```
 
-O `<hash>` sai daqui — sem argumento o script sorteia uma senha temporária e
-mostra as duas:
-
 ```bash
 docker compose exec web npm run senha:hash
 docker compose exec web npm run senha:hash -- 'a-senha-provisoria'
 ```
-
-Daí em diante tudo é feito pela interface: esse administrador entra, troca a
-senha na hora e cadastra o resto do time em **Administração › Autenticação**.
 
 Se depois ligar o SSO, o `email` em `usuarios` precisa ser exatamente o que o
 provedor de identidade devolve — é por ele que os dois lados se encontram.
