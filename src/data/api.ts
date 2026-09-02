@@ -10,6 +10,12 @@ export class ErroApi extends Error {
     readonly status: number,
     mensagem: string,
     readonly detalhes?: string[],
+    /**
+     * Mensagem por campo, quando a rota valida formulário. A chave é o nome do
+     * campo — a tela mostra embaixo do controle certo em vez de num aviso
+     * genérico no topo.
+     */
+    readonly campos?: Record<string, string>,
   ) {
     super(mensagem);
   }
@@ -36,6 +42,7 @@ async function pedir<T>(caminho: string, init?: RequestInit): Promise<T> {
       resposta.status,
       (corpo as { erro?: string }).erro ?? 'Falha na comunicação com o servidor.',
       (corpo as { detalhes?: string[] }).detalhes,
+      (corpo as { campos?: Record<string, string> }).campos,
     );
   }
   return corpo as T;

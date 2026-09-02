@@ -9,6 +9,7 @@ import {
   LogOut,
   Megaphone,
   Palmtree,
+  Plug,
   ShieldCheck,
   Stethoscope,
   UserCog,
@@ -91,6 +92,7 @@ const GRUPOS: { rotulo: string; itens: ItemNav[] }[] = [
       { titulo: 'Comunicados', url: '/comunicados', icone: Megaphone },
       { titulo: 'Auditoria', url: '/auditoria', icone: FileClock, papeis: ['admin', 'rh'] },
       { titulo: 'Autenticação', url: '/autenticacao', icone: ShieldCheck, papeis: ['admin'] },
+      { titulo: 'Integrações', url: '/integracoes', icone: Plug, papeis: ['admin'] },
     ],
   },
 ];

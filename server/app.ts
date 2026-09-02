@@ -11,6 +11,7 @@ import { rotasCrud } from './rotas/crud';
 import { rotasDados } from './rotas/dados';
 import { rotasAcoes } from './rotas/acoes';
 import { rotasAdministracao } from './rotas/administracao';
+import { rotasIntegracoes } from './rotas/integracoes';
 
 const raiz = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -60,6 +61,7 @@ export async function criarApp(): Promise<FastifyInstance> {
 
   rotasAuth(app);
   rotasAdministracao(app);
+  rotasIntegracoes(app);
   rotasDados(app);
   rotasAcoes(app);
   rotasCrud(app);

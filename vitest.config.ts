@@ -28,6 +28,12 @@ export default defineConfig({
           environment: "node",
           globals: true,
           include: ["server/**/*.{test,spec}.ts"],
+          // `server/config.ts` exige estas duas na importação. Nenhum teste
+          // abre conexão; elas só deixam o módulo carregar.
+          env: {
+            DATABASE_URL: "postgres://teste:teste@127.0.0.1:5432/teste",
+            APP_SECRET_KEY: "chave-de-teste-dos-testes-automatizados",
+          },
         },
       },
     ],

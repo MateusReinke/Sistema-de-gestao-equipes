@@ -114,7 +114,7 @@ npm run dev               # front em :8080, com proxy de /api para a API
 npm run typecheck         # front
 npm run typecheck:server  # servidor
 npm run lint
-npm test                  # 96 testes das regras de negócio e de senha
+npm test                  # 170 testes das regras de negócio, senha e integrações
 npm run build
 npm run icons             # regenera favicon/apple-touch-icon/og-image
 ```
@@ -209,6 +209,55 @@ banco. Apagar a linha em `sessoes` derruba o acesso na hora — é o que o
 desligamento faz, junto com desativar o usuário e limpar os plantões futuros.
 Trocar ou redefinir a senha encerra as outras sessões da pessoa.
 
+## Integrações
+
+Registro dos sistemas externos, no formato do *media type* do Zabbix: um
+catálogo de tipos, cada um declarando os campos que precisa, e um teste de
+conexão por tipo. O formulário da tela é **gerado** a partir do catálogo
+(`src/lib/integracoes.ts`), que é o mesmo módulo que a API usa para validar —
+acrescentar um sistema é acrescentar uma entrada, não uma tela.
+
+| Tipo | Para quê |
+| --- | --- |
+| Zabbix | Monitoramento. Alimenta as consultas de alerta. |
+| GLPI | Service desk: abre sessão pela API REST. |
+| Webhook | POST em JSON para Teams, n8n ou automação própria. |
+
+Credencial (token, App-Token, User-Token) é marcada como segredo no catálogo, e
+é essa marcação que decide o que vai cifrado (AES-256-GCM) para o banco. A
+listagem devolve apenas **quais** chaves estão gravadas, nunca os valores;
+campo em branco no formulário significa "mantém o que está lá".
+
+### Consultas de alerta
+
+Uma consulta é um filtro nomeado sobre os problemas do Zabbix — severidade
+mínima, grupos de host, tags, reconhecidos ou não — amarrado a um cliente. É o
+que responde "como está o ambiente do cliente X".
+
+Quem enxerga cada consulta segue o recorte de sempre: administração e RH veem
+todas; o gestor vê as dos clientes atendidos pelas equipes que lidera; o
+colaborador não vê nenhuma. Uma consulta fora do alcance responde **404**, não
+403 — negar com 403 confirmaria que ela existe.
+
+A opção "liberar para o cliente" marca a consulta como visível ao cliente dono.
+A tela de acesso do próprio cliente ainda não existe: hoje a central só tem
+usuários internos, e esse é o passo seguinte natural.
+
+### Chamadas para fora
+
+Toda requisição a sistema externo passa por `server/integracoes/http.ts`, que
+concentra tempo limite, teto de corpo e a recusa de endereços internos.
+
+Essa última merece explicação. O endereço da integração é digitado por um
+administrador, então o servidor faz requisição para onde mandarem — isso é
+SSRF. Sem barreira, alguém aponta a "integração" para `169.254.169.254` e usa a
+central como proxy para o metadata da nuvem. A verificação roda **a cada salto
+de redirecionamento**, porque um host externo pode redirecionar para um
+interno, e cobre IPv4 mapeado em IPv6: o Node normaliza
+`[::ffff:169.254.169.254]` para `[::ffff:a9fe:a9fe]`, e comparar por prefixo de
+texto deixaria passar. Fora de produção a barreira não vale, porque em
+desenvolvimento a integração costuma estar no próprio laptop.
+
 ## Banco de dados
 
 Schema em `server/db/schema.ts`, espelhando `src/types/sgo.ts` campo a campo.
@@ -281,6 +330,12 @@ server/
     acoes.ts             decidir solicitação, registrar desligamento
     auth.ts              login por senha, SSO, logout, sessão atual
     administracao.ts     configuração de autenticação e senhas de usuários
+    integracoes.ts       sistemas externos e consultas de alerta
+  integracoes/
+    http.ts              tempo limite, teto de corpo e bloqueio de SSRF
+    zabbix.ts            JSON-RPC: versão, grupos de host, problemas
+    glpi.ts              sessão da API REST
+    index.ts             cifra/decifra segredos e escolhe o cliente
   db/
     schema.ts            schema Drizzle
     migrations/          SQL versionado
