@@ -31,5 +31,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 
 # Migrar antes de atender: um deploy nunca responde contra schema antigo.
 # bootstrap-admin cria o primeiro administrador se a base ainda não tiver
-# nenhum usuário — sem isso, uma instalação nova não tem por onde entrar.
-CMD ["sh", "-c", "npx tsx server/db/migrate.ts && npx tsx server/db/bootstrap-admin.ts && npx tsx server/index.ts"]
+# nenhum usuário, e bootstrap-sistemas semeia o catálogo de acessos com os
+# sistemas mais comuns se ele ainda estiver vazio — sem isso, uma instalação
+# nova não tem por onde entrar nem o que solicitar.
+CMD ["sh", "-c", "npx tsx server/db/migrate.ts && npx tsx server/db/bootstrap-admin.ts && npx tsx server/db/bootstrap-sistemas.ts && npx tsx server/index.ts"]

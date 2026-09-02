@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Avatar, Aviso, BadgeStatus, CabecalhoPagina, Campo, EstadoVazio } from '@/components/comum';
 import { SeletorDepartamento } from '@/components/organizacao/SeletorDepartamento';
+import { SeletorEquipe } from '@/components/organizacao/SeletorEquipe';
 import { useDados, novoId } from '@/data/store';
 import { useAuth } from '@/contexts/AuthContext';
 import { calcularSaldoFerias, formatarTempoDeCasa, idade } from '@/lib/rh';
@@ -364,12 +365,11 @@ export default function FuncionariosPage() {
                 </div>
                 <div className="space-y-1.5">
                   <Label>Equipe</Label>
-                  <Select value={emEdicao.equipe_id} onValueChange={(v) => setEmEdicao({ ...emEdicao, equipe_id: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {equipes.filter((e) => e.ativo).map((e) => <SelectItem key={e.id} value={e.id}>{e.nome}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <SeletorEquipe
+                    value={emEdicao.equipe_id}
+                    onChange={(v) => setEmEdicao({ ...emEdicao, equipe_id: v })}
+                    departamentoIdSugerido={emEdicao.departamento_id}
+                  />
                 </div>
               </div>
 
