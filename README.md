@@ -93,7 +93,7 @@ docker compose up --build -d
 docker compose exec web npx tsx server/db/seed.ts    # massa inicial, opcional
 ```
 
-Disponível em `http://localhost:8081` (porta fixa em `docker-compose.yml`,
+Disponível em `http://localhost:8091` (porta fixa em `docker-compose.yml`,
 não por variável — edite o `ports:` do serviço `web` para trocar).
 
 ### Local, sem Docker
@@ -382,7 +382,7 @@ src/
 
 ¹ no caminho com banco junto · ² no caminho com banco gerenciado
 
-A porta publicada no host **não é uma variável**: fica fixa em `8081` no
+A porta publicada no host **não é uma variável**: fica fixa em `8091` no
 `ports:` de `docker-compose.yml`. A Coolify tem bugs conhecidos interpolando
 `${VAR}` nesse campo especificamente (coollabsio/coolify#9136, #4961, #8953),
 então em vez de depender disso, troque o número direto no arquivo e faça um

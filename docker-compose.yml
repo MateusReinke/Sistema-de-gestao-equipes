@@ -57,7 +57,11 @@ services:
       # #4961, #8953) — a variável às vezes não chega e cai no valor padrão
       # do compose, ignorando o que foi definido na interface. Pra trocar a
       # porta publicada, edite o número abaixo e faça um novo deploy.
-      - '8081:3000'
+      #
+      # 8091 é a porta já reservada para este app no túnel Cloudflare
+      # (gestao-equipes.mrbautomacoes.site → 192.168.1.9:8091) — 8080 é o
+      # Zabbix (daí o conflito no primeiro deploy) e 8081 é o Evolution.
+      - '8091:3000'
 
 volumes:
   pgdata:
