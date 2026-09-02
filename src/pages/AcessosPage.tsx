@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Download, KeyRound, Plus, Search, Server, ShieldAlert } from 'lucide-react';
+import { Download, KeyRound, LogOut, Plus, Search, Server, ShieldAlert, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Avatar, Aviso, BadgeStatus, CabecalhoPagina, EstadoVazio, Indicador } from '@/components/comum';
 import { useDados, novoId, proximoProtocolo } from '@/data/store';
 import { useAuth } from '@/contexts/AuthContext';
+import { FormularioLoteAcesso } from '@/components/acessos/FormularioLoteAcesso';
 import { agora, formatarData, hoje } from '@/lib/date';
 import { baixarCsv } from '@/lib/export';
 import {
@@ -46,6 +47,7 @@ export default function AcessosPage() {
   const [filtroStatus, setFiltroStatus] = useState<StatusSolicitacao | 'todos'>('todos');
   const [emEdicao, setEmEdicao] = useState<SolicitacaoAcesso | null>(null);
   const [sistemaEmEdicao, setSistemaEmEdicao] = useState<Sistema | null>(null);
+  const [loteAberto, setLoteAberto] = useState<'concessao' | 'revogacao' | null>(null);
 
   const ativos = useMemo(() => funcionarios.filter((f) => f.status !== 'desligado'), [funcionarios]);
   const nomeDe = (id: string) => funcionarios.find((f) => f.id === id)?.nome ?? '—';
@@ -158,6 +160,16 @@ export default function AcessosPage() {
             <Button variant="outline" onClick={exportar}>
               <Download className="mr-2 h-4 w-4" /> Exportar
             </Button>
+            {ehRh && (
+              <>
+                <Button variant="outline" onClick={() => setLoteAberto('concessao')}>
+                  <UserPlus className="mr-2 h-4 w-4" /> Acessos de admissão
+                </Button>
+                <Button variant="outline" onClick={() => setLoteAberto('revogacao')}>
+                  <LogOut className="mr-2 h-4 w-4" /> Revogar (desligamento)
+                </Button>
+              </>
+            )}
             <Button onClick={abrirNova}>
               <Plus className="mr-2 h-4 w-4" /> Pedir acesso
             </Button>
@@ -552,6 +564,12 @@ export default function AcessosPage() {
           )}
         </SheetContent>
       </Sheet>
+
+      <FormularioLoteAcesso
+        aberto={loteAberto !== null}
+        aoFechar={() => setLoteAberto(null)}
+        modo={loteAberto ?? 'concessao'}
+      />
     </div>
   );
 }

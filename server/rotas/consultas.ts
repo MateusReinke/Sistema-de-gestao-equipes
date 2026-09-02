@@ -34,7 +34,11 @@ export function rotasConsultas(app: FastifyInstance): void {
       resposta = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, {
         signal: AbortSignal.timeout(8000),
       });
-    } catch {
+    } catch (erro) {
+      // Sem isto, uma falha de rede do próprio servidor (DNS, egress bloqueado)
+      // vira só "não deu" pro usuário e some do log — impossível de diagnosticar
+      // depois. `docker logs` mostra a causa real.
+      req.log.warn({ erro }, 'falha ao consultar CNPJ na BrasilAPI');
       return reply.code(502).send({ erro: 'Não foi possível consultar o CNPJ agora. Tente novamente.' });
     }
 

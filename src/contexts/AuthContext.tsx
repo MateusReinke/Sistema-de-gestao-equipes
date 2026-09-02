@@ -127,7 +127,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       ehAdmin: atual?.papel === 'admin',
       podeAprovar: atual?.ehRh ?? false,
       podeGerenciar: atual?.ehRh ?? false,
-      equipesVisiveis: atual?.equipesVisiveis ?? [],
+      // `null` do servidor significa "todas as equipes" (admin/RH) — colapsar
+      // em `[]` aqui esconderia tudo, já que as telas leem `null` como "sem
+      // recorte". Só falta sessão vira lista vazia; sessão com `null` continua
+      // `null`.
+      equipesVisiveis: atual ? atual.equipesVisiveis : [],
     }),
     [
       atual,
