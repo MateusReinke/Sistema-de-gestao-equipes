@@ -115,9 +115,10 @@ npm run dev               # front em :8080, com proxy de /api para a API
 npm run typecheck         # front
 npm run typecheck:server  # servidor
 npm run lint
-npm test                  # 170 testes das regras de negócio, senha e integrações
+npm test                  # regras de negócio, senha, integrações e a API de automação
 npm run build
 npm run icons             # regenera favicon/apple-touch-icon/og-image
+npm run api:chave -- criar "n8n produção"   # chave de API para automação — ver seção própria
 ```
 
 ### Acesso de demonstração
@@ -259,6 +260,101 @@ interno, e cobre IPv4 mapeado em IPv6: o Node normaliza
 texto deixaria passar. Fora de produção a barreira não vale, porque em
 desenvolvimento a integração costuma estar no próprio laptop.
 
+## API para automação (n8n)
+
+Além das telas, a central expõe uma API HTTP só de leitura para automação
+externa — pensada para o n8n, mas é JSON comum: qualquer cliente HTTP serve
+(Make, Zapier, curl, outro serviço interno). Ela responde às três perguntas
+que um fluxo de incidente precisa cruzar na hora: **quem está de plantão**
+numa equipe agora, **qual o caminho de escalonamento** de um cliente, e
+**qual o grupo de WhatsApp** dele — em vez de expor as tabelas cruas e
+empurrar esse cruzamento para dentro do fluxo do n8n.
+
+### Autenticação
+
+Não é a sessão de cookie que a tela usa — automação não é navegador. É uma
+**chave de API**, de longa duração, enviada em cada requisição:
+
+```
+X-API-Key: lumini_n8n_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+(`Authorization: Bearer <chave>` também funciona, para clientes que só têm
+esse campo.) Chave ausente, errada, revogada ou expirada responde **401**.
+
+Por design, uma chave de API **só abre rotas de leitura em `/api/n8n/*`** —
+não grava, não decide solicitação, não altera cadastro. Vazar uma chave
+expõe dado de plantonista e contato, não dá controle do sistema. Há também
+um limite de 120 requisições por minuto por chave (**429** ao estourar), para
+conter um fluxo do n8n preso em loop ou uma chave vazada sendo varrida.
+
+**Criar, listar e revogar chaves é feito por linha de comando**, não pela
+tela — mintar uma credencial que lê plantonista, escalonamento e grupo de
+WhatsApp de todo cliente é uma decisão de operação, do mesmo jeito que criar
+o primeiro administrador (`bootstrap-admin.ts`) é:
+
+```bash
+npm run api:chave -- criar "n8n produção" [--dias 365]   # mostra a chave uma vez só — anote na hora
+npm run api:chave -- listar
+npm run api:chave -- revogar <id>                        # efeito imediato
+```
+
+Em produção, pelo container: `docker compose exec web npm run api:chave -- criar "n8n produção"`.
+
+### Plantonista
+
+"Quem está de plantão" cruza a escala com férias e ausências aprovadas — um
+plantão `confirmado` cujo titular emendou férias depois de escalado não
+conta como serviço real — e trata a virada de meia-noite: um turno
+19:00–07:00 fica gravado no dia em que *começa*, então a pergunta às 3h da
+manhã olha o turno de ontem, não o de hoje. A hora é sempre interpretada em
+horário do Brasil (`America/Sao_Paulo`), não no fuso do servidor.
+
+| Rota | O que devolve |
+| --- | --- |
+| `GET /api/n8n/equipes` | Catálogo de equipes (id, nome, gestor), para mapear nome → id |
+| `GET /api/n8n/equipes/:id/plantonista?em=` | Quem está de plantão nessa equipe agora (ou no instante `em`, ISO 8601) |
+| `GET /api/n8n/plantonistas?em=&equipe_id=` | O mesmo, para todas as equipes de uma vez ou um subconjunto (`equipe_id=eq1,eq2`) |
+
+Equipe sem ninguém em serviço no instante devolve `plantonistas: []` — é o
+próprio sinal de furo de escala, sem precisar de outra chamada.
+
+```bash
+curl -H "X-API-Key: $CHAVE" \
+  "https://central.lumini.com.br/api/n8n/equipes/eq3/plantonista"
+```
+
+```json
+{
+  "equipe": { "id": "eq3", "nome": "NOC 24x7" },
+  "em": "2026-09-09T17:00:00.000Z",
+  "plantonistas": [
+    {
+      "funcionario": { "id": "f11", "nome": "Felipe Rocha", "email": "...", "telefone": "...", "cargo": "..." },
+      "plantao": { "id": "p0099", "data": "2026-09-09", "hora_inicio": "08:00", "hora_fim": "17:00", "tipo": "comercial", "status": "previsto" }
+    }
+  ]
+}
+```
+
+### Clientes, escalonamento e grupo de WhatsApp
+
+| Rota | O que devolve |
+| --- | --- |
+| `GET /api/n8n/clientes?q=&ativo=` | Catálogo de clientes — id, contrato, SLA, **`id_whatsapp`** (o grupo), gerente de conta. `q` busca em nome, razão social, CNPJ e id do WhatsApp |
+| `GET /api/n8n/clientes/:id` | Visão completa: contrato, contatos, escalonamento e plantonista atual de cada equipe que atende o cliente — tudo numa chamada, para o primeiro passo de um fluxo de incidente |
+| `GET /api/n8n/clientes/:id/escalonamento` | Só o caminho de escalonamento, do nível 1 em diante, com quem aciona (interno) e quem é acionado (contato do cliente) em cada degrau |
+| `GET /api/n8n/clientes/:id/plantonista?em=` | Plantonista de cada equipe que atende o cliente agora, equipe de frente (`principal`) primeiro |
+| `GET /api/n8n/clientes/por-grupo/:idWhatsapp` | Caminho inverso: acha o cliente a partir do id do grupo de WhatsApp de onde a mensagem chegou. Devolve `{ "clientes": [...] }` — array vazio, não 404, quando não acha |
+
+ID de cliente ou equipe desconhecido devolve **404**; parâmetro `em` que não
+parseia como data ISO devolve **400**.
+
+```bash
+curl -H "X-API-Key: $CHAVE" \
+  "https://central.lumini.com.br/api/n8n/clientes/por-grupo/5511990000002"
+```
+
 ## Banco de dados
 
 Schema em `server/db/schema.ts`, espelhando `src/types/sgo.ts` campo a campo.
@@ -324,6 +420,7 @@ server/
     oidc.ts              fluxo OpenID Connect com PKCE
     sessao.ts            cookie opaco + sessão no banco
     permissoes.ts        autorização — a que vale
+    chaveApi.ts          chave de API para automação (n8n): hash, verificação, limite de uso
   rotas/
     colecoes.ts          registro das coleções: tabela, permissão, validação
     crud.ts              PUT/DELETE genéricos sobre o registro
@@ -332,15 +429,17 @@ server/
     auth.ts              login por senha, SSO, logout, sessão atual
     administracao.ts     configuração de autenticação e senhas de usuários
     integracoes.ts       sistemas externos e consultas de alerta
+    n8n.ts               API de automação: plantonista, escalonamento, grupo do cliente
   integracoes/
     http.ts              tempo limite, teto de corpo e bloqueio de SSRF
     zabbix.ts            JSON-RPC: versão, grupos de host, problemas
     glpi.ts              sessão da API REST
     index.ts             cifra/decifra segredos e escolhe o cliente
+  plantonistas.ts         quem está de plantão agora, por equipe — fuso e virada de meia-noite
   db/
     schema.ts            schema Drizzle
     migrations/          SQL versionado
-    seed.ts, migrate.ts
+    seed.ts, migrate.ts, chave-api.ts   criar/listar/revogar chave de API
 
 src/
   components/

@@ -691,6 +691,35 @@ export const oidcEstados = pgTable('oidc_estados', {
   criado_em: isoTimestamp('criado_em').notNull(),
 });
 
+/* ---------------------------------------------------------------- automação */
+
+/**
+ * Chaves de API para automação externa (n8n e afins).
+ *
+ * Só abrem as rotas de leitura em `/api/n8n/*` — pensadas para consumo por
+ * outro serviço, sem interação humana e sem cookie de sessão. Diferente da
+ * senha de gente, o token nasce com alta entropia, então o banco guarda só o
+ * hash SHA-256 (ver `auth/chaveApi.ts`); não há por que passar por uma KDF
+ * lenta como o scrypt das senhas.
+ */
+export const chavesApi = pgTable(
+  'chaves_api',
+  {
+    id: varchar('id', { length: 40 }).primaryKey(),
+    nome: text('nome').notNull(),
+    /** Primeiros caracteres do token, só para identificar a chave numa listagem. */
+    prefixo: varchar('prefixo', { length: 24 }).notNull(),
+    chave_hash: varchar('chave_hash', { length: 64 }).notNull(),
+    ativo: boolean('ativo').notNull().default(true),
+    criado_em: isoTimestamp('criado_em').notNull(),
+    /** Nulo quando criada por script de linha de comando, fora de uma sessão. */
+    criado_por: varchar('criado_por', { length: 40 }),
+    expira_em: isoTimestamp('expira_em'),
+    ultimo_uso_em: isoTimestamp('ultimo_uso_em'),
+  },
+  (t) => ({ hashUnico: uniqueIndex('chaves_api_hash_idx').on(t.chave_hash) }),
+);
+
 /** Todas as tabelas de negócio, na ordem segura de inserção do seed. */
 export const tabelasNaOrdem = [
   departamentos,

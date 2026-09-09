@@ -6,6 +6,7 @@ import cookie from '@fastify/cookie';
 import estatico from '@fastify/static';
 import { config } from './config';
 import { SemPermissao } from './auth/permissoes';
+import { ChaveApiInvalida, LimiteDeUsoExcedido } from './auth/chaveApi';
 import { NaoAutenticado, rotasAuth } from './rotas/auth';
 import { rotasCrud } from './rotas/crud';
 import { rotasDados } from './rotas/dados';
@@ -13,6 +14,7 @@ import { rotasAcoes } from './rotas/acoes';
 import { rotasAdministracao } from './rotas/administracao';
 import { rotasIntegracoes } from './rotas/integracoes';
 import { rotasConsultas } from './rotas/consultas';
+import { rotasN8n } from './rotas/n8n';
 
 const raiz = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -35,6 +37,8 @@ export async function criarApp(): Promise<FastifyInstance> {
   app.setErrorHandler((erro, req, reply) => {
     if (erro instanceof NaoAutenticado) return reply.code(401).send({ erro: erro.message });
     if (erro instanceof SemPermissao) return reply.code(403).send({ erro: erro.message });
+    if (erro instanceof ChaveApiInvalida) return reply.code(401).send({ erro: erro.message });
+    if (erro instanceof LimiteDeUsoExcedido) return reply.code(429).send({ erro: erro.message });
 
     const { code: codigo, statusCode: status, message } = erro as {
       code?: string;
@@ -67,6 +71,7 @@ export async function criarApp(): Promise<FastifyInstance> {
   rotasDados(app);
   rotasAcoes(app);
   rotasCrud(app);
+  rotasN8n(app);
 
   // Em produção o mesmo processo serve o front compilado, então há um
   // container e uma origem só — sem CORS e sem cookie entre domínios.
