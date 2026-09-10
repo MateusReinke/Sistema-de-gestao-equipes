@@ -29,7 +29,10 @@ export class ErroApi extends Error {
 async function pedir<T>(caminho: string, init?: RequestInit): Promise<T> {
   const resposta = await fetch(caminho, {
     ...init,
-    headers: { 'content-type': 'application/json', ...init?.headers },
+    // Só declara JSON quando há corpo de verdade: o Fastify recusa com 400
+    // um `content-type: application/json` sem corpo, e todo DELETE aqui é
+    // sem corpo.
+    headers: init?.body ? { 'content-type': 'application/json', ...init.headers } : init?.headers,
     // Sem isto o cookie de sessão não acompanha a requisição.
     credentials: 'same-origin',
   });

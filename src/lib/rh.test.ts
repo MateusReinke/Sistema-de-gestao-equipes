@@ -65,6 +65,7 @@ function plantao(over: Partial<Plantao> = {}): Plantao {
     hora_fim: '17:00',
     tipo: 'comercial',
     status: 'previsto',
+    gerado_automaticamente: false,
     ...over,
   };
 }

@@ -40,14 +40,21 @@ export async function criarApp(): Promise<FastifyInstance> {
     if (erro instanceof ChaveApiInvalida) return reply.code(401).send({ erro: erro.message });
     if (erro instanceof LimiteDeUsoExcedido) return reply.code(429).send({ erro: erro.message });
 
-    const { code: codigo, statusCode: status, message } = erro as {
+    const { code: codigo, statusCode: status, message, cause } = erro as {
       code?: string;
       statusCode?: number;
       message?: string;
+      cause?: { code?: string };
     };
 
-    if (codigo && MENSAGEM_POR_CODIGO[codigo]) {
-      return reply.code(409).send({ erro: MENSAGEM_POR_CODIGO[codigo] });
+    // O driver postgres-js embrulha o erro real do Postgres em `.cause`
+    // quando ele vem de uma query do Drizzle (diferente de `sql.unsafe`, que
+    // lança o erro direto) — sem isto, toda violação de unicidade ou de FK
+    // vinda de uma tela vira 500 genérico em vez do 409 com a mensagem certa.
+    const codigoPostgres = codigo ?? cause?.code;
+
+    if (codigoPostgres && MENSAGEM_POR_CODIGO[codigoPostgres]) {
+      return reply.code(409).send({ erro: MENSAGEM_POR_CODIGO[codigoPostgres] });
     }
 
     // Erros do próprio Fastify (corpo malformado, payload grande demais) já

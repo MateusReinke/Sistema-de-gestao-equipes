@@ -120,6 +120,10 @@ interface ContextoDados extends BaseDados {
   salvarEquipe: (e: Equipe) => Promise<void>;
   salvarDepartamento: (d: Departamento) => Promise<void>;
   salvarEscala: (e: Escala) => Promise<void>;
+  salvarEscalaDetalhe: (d: EscalaDetalhe) => Promise<void>;
+  removerEscalaDetalhe: (id: string) => Promise<void>;
+  salvarEscalaFuncionario: (v: EscalaFuncionario) => Promise<void>;
+  removerEscalaFuncionario: (id: string) => Promise<void>;
   salvarSistema: (s: Sistema) => Promise<void>;
   salvarComunicado: (c: Comunicado) => Promise<void>;
   removerComunicado: (id: string) => Promise<void>;
@@ -142,6 +146,12 @@ interface ContextoDados extends BaseDados {
   salvarTrocaPlantao: (t: TrocaPlantao) => Promise<void>;
   salvarPlantao: (p: Plantao) => Promise<void>;
   removerPlantao: (id: string) => Promise<void>;
+  gerarPlantoesEquipe: (
+    equipeId: string,
+    de: string,
+    ate: string,
+    sobrescrever?: boolean,
+  ) => Promise<{ criados: number; atualizados: number; pulados: number }>;
 
   decidir: (
     tipo: TipoPendencia,
@@ -228,6 +238,23 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
     [aoConcluir, aoFalhar],
   );
 
+  const gerarPlantoesEquipe = useCallback(
+    async (equipeId: string, de: string, ate: string, sobrescrever?: boolean) => {
+      try {
+        const resultado = await api.post<{ criados: number; atualizados: number; pulados: number }>(
+          `/api/equipes/${equipeId}/gerar-plantoes`,
+          { de, ate, sobrescrever },
+        );
+        aoConcluir();
+        return resultado;
+      } catch (erro) {
+        aoFalhar(erro);
+        throw erro;
+      }
+    },
+    [aoConcluir, aoFalhar],
+  );
+
   const desligarFuncionario = useCallback(
     async (id: string, data: string) => {
       try {
@@ -254,6 +281,10 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
       salvarEquipe: salvarEm('equipes'),
       salvarDepartamento: salvarEm('departamentos'),
       salvarEscala: salvarEm('escalas'),
+      salvarEscalaDetalhe: salvarEm('escalaDetalhes'),
+      removerEscalaDetalhe: removerDe('escalaDetalhes'),
+      salvarEscalaFuncionario: salvarEm('escalaFuncionarios'),
+      removerEscalaFuncionario: removerDe('escalaFuncionarios'),
       salvarSistema: salvarEm('sistemas'),
       salvarComunicado: salvarEm('comunicados'),
       removerComunicado: removerDe('comunicados'),
@@ -276,10 +307,20 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
       salvarTrocaPlantao: salvarEm('trocasPlantao'),
       salvarPlantao: salvarEm('plantoes'),
       removerPlantao: removerDe('plantoes'),
+      gerarPlantoesEquipe,
 
       decidir,
     }),
-    [base, consulta.isPending, aoConcluir, salvarEm, removerDe, decidir, desligarFuncionario],
+    [
+      base,
+      consulta.isPending,
+      aoConcluir,
+      salvarEm,
+      removerDe,
+      decidir,
+      desligarFuncionario,
+      gerarPlantoesEquipe,
+    ],
   );
 
   return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;
