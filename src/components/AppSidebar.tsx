@@ -66,7 +66,6 @@ const GRUPOS: { rotulo: string; itens: ItemNav[] }[] = [
   {
     rotulo: 'Operação',
     itens: [
-      { titulo: 'Escalas', url: '/escalas', icone: CalendarClock, papeis: ['admin', 'rh', 'gestor'] },
       { titulo: 'Plantões', url: '/plantoes', icone: CalendarDays },
       { titulo: 'Clientes', url: '/clientes', icone: Building2, papeis: ['admin', 'rh', 'gestor'] },
     ],

@@ -409,6 +409,15 @@ export const escalas = pgTable('escalas', {
    * 2 dias corridos volta a cair no mesmo dia da semana.
    */
   ciclo_semanas: smallint('ciclo_semanas').notNull().default(1),
+  /**
+   * Semana em que o rodízio começa — a referência das *posições*.
+   *
+   * Quem ocupa a posição 1 tem a âncora aqui; a posição 2, uma semana depois,
+   * e assim por diante. Guardar o início na escala é o que permite a tela
+   * falar em "posição 2 de 3" em vez de pedir uma data por pessoa, que era
+   * onde a conta saía errada.
+   */
+  inicio_em: date('inicio_em').notNull().defaultNow(),
   /** Que papel esta escala cumpre no rodízio da equipe. */
   papel: papelEscala('papel').notNull().default('trabalho'),
 

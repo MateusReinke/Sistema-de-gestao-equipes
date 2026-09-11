@@ -26,7 +26,6 @@ const EquipesPage = lazy(() => import('@/pages/EquipesPage'));
 const EscalaEquipePage = lazy(() => import('@/pages/EscalaEquipePage'));
 const GestoresPage = lazy(() => import('@/pages/GestoresPage'));
 const ClientesPage = lazy(() => import('@/pages/ClientesPage'));
-const EscalasPage = lazy(() => import('@/pages/EscalasPage'));
 const PlantoesPage = lazy(() => import('@/pages/PlantoesPage'));
 const AprovacoesPage = lazy(() => import('@/pages/AprovacoesPage'));
 const FeriasPage = lazy(() => import('@/pages/FeriasPage'));
@@ -108,7 +107,6 @@ function Rotas() {
       />
       <Route path="/gestores" element={<Protegida papeis={RH}><GestoresPage /></Protegida>} />
       <Route path="/clientes" element={<Protegida papeis={GESTAO}><ClientesPage /></Protegida>} />
-      <Route path="/escalas" element={<Protegida papeis={GESTAO}><EscalasPage /></Protegida>} />
       <Route path="/plantoes" element={<Protegida><PlantoesPage /></Protegida>} />
       <Route path="/aprovacoes" element={<Protegida papeis={GESTAO}><AprovacoesPage /></Protegida>} />
       <Route path="/ferias" element={<Protegida><FeriasPage /></Protegida>} />

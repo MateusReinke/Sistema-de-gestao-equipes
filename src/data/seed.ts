@@ -231,15 +231,14 @@ export const usuarios: Usuario[] = [
  *   um código de turno híbrido.
  */
 export const escalas: Escala[] = [
-  { id: 'esc1', nome: '12×36 Diurno N1 — Ímpar', tipo: '12x36', descricao: 'Turno diurno 07h–19h, semana ímpar do par', equipe_id: 'eq1', ciclo_semanas: 2, papel: 'trabalho', turno_tipo: 'diurno', turno_inicio: '07:00', turno_fim: '19:00', sobreaviso_inicio: '07:00', sobreaviso_fim: '19:00', ativo: true },
-  { id: 'esc2', nome: '12×36 Diurno N1 — Par', tipo: '12x36', descricao: 'Turno diurno 07h–19h, semana par do par', equipe_id: 'eq1', ciclo_semanas: 2, papel: 'trabalho', turno_tipo: 'diurno', turno_inicio: '07:00', turno_fim: '19:00', sobreaviso_inicio: '07:00', sobreaviso_fim: '19:00', ativo: true },
-  { id: 'esc3', nome: 'Comercial N2', tipo: '5x2', descricao: 'Segunda a sexta, 08h–17h', equipe_id: 'eq2', ciclo_semanas: 1, papel: 'trabalho', turno_tipo: 'comercial', turno_inicio: '08:00', turno_fim: '17:00', sobreaviso_inicio: '00:00', sobreaviso_fim: '23:59', ativo: true },
-  { id: 'esc4', nome: '12×36 Diurno NOC', tipo: '12x36', descricao: 'Turno diurno 07h–19h em dias alternados', equipe_id: 'eq3', ciclo_semanas: 2, papel: 'trabalho', turno_tipo: 'diurno', turno_inicio: '07:00', turno_fim: '19:00', sobreaviso_inicio: '07:00', sobreaviso_fim: '19:00', ativo: true },
-  { id: 'esc5', nome: '12×36 Noturno NOC', tipo: '12x36', descricao: 'Turno noturno 19h–07h em dias alternados', equipe_id: 'eq3', ciclo_semanas: 2, papel: 'trabalho', turno_tipo: 'noturno', turno_inicio: '19:00', turno_fim: '07:00', sobreaviso_inicio: '19:00', sobreaviso_fim: '07:00', ativo: true },
-  { id: 'esc6', nome: 'Comercial Field Service', tipo: '6x1', descricao: 'Segunda a sábado, 08h–16h', equipe_id: 'eq5', ciclo_semanas: 1, papel: 'trabalho', turno_tipo: 'comercial', turno_inicio: '08:00', turno_fim: '16:00', sobreaviso_inicio: '00:00', sobreaviso_fim: '23:59', ativo: true },
-  { id: 'esc7', nome: 'Plantão Field Service', tipo: 'personalizada', descricao: 'Sobreaviso 16h–08h, uma semana por vez, revezando', equipe_id: 'eq5', ciclo_semanas: 2, papel: 'plantao', turno_tipo: 'sobreaviso', turno_inicio: '16:00', turno_fim: '08:00', sobreaviso_inicio: '16:00', sobreaviso_fim: '08:00', ativo: true },
-  { id: 'esc8', nome: 'Backup Plantão Field Service', tipo: 'personalizada', descricao: 'Sobreaviso 16h–08h, cobre a semana em que o outro está de plantão', equipe_id: 'eq5', ciclo_semanas: 2, papel: 'backup', turno_tipo: 'backup', turno_inicio: '16:00', turno_fim: '08:00', sobreaviso_inicio: '16:00', sobreaviso_fim: '08:00', ativo: true },
-  { id: 'esc9', nome: 'Cobertura de Fim de Semana N1', tipo: 'personalizada', descricao: 'Sábado e domingo, 08h–20h', equipe_id: 'eq1', ciclo_semanas: 1, papel: 'trabalho', turno_tipo: 'especial', turno_inicio: '08:00', turno_fim: '20:00', sobreaviso_inicio: '00:00', sobreaviso_fim: '23:59', ativo: true },
+  { id: 'esc1', inicio_em: '2026-01-05', nome: '12×36 Diurno N1', tipo: '12x36', descricao: 'Turno diurno 07h–19h, duas posições revezando dia sim, dia não', equipe_id: 'eq1', ciclo_semanas: 2, papel: 'trabalho', turno_tipo: 'diurno', turno_inicio: '07:00', turno_fim: '19:00', sobreaviso_inicio: '07:00', sobreaviso_fim: '19:00', ativo: true },
+  { id: 'esc3', inicio_em: '2026-01-05', nome: 'Comercial N2', tipo: '5x2', descricao: 'Segunda a sexta, 08h–17h', equipe_id: 'eq2', ciclo_semanas: 1, papel: 'trabalho', turno_tipo: 'comercial', turno_inicio: '08:00', turno_fim: '17:00', sobreaviso_inicio: '00:00', sobreaviso_fim: '23:59', ativo: true },
+  { id: 'esc4', inicio_em: '2026-01-05', nome: '12×36 Diurno NOC', tipo: '12x36', descricao: 'Turno diurno 07h–19h em dias alternados', equipe_id: 'eq3', ciclo_semanas: 2, papel: 'trabalho', turno_tipo: 'diurno', turno_inicio: '07:00', turno_fim: '19:00', sobreaviso_inicio: '07:00', sobreaviso_fim: '19:00', ativo: true },
+  { id: 'esc5', inicio_em: '2026-01-05', nome: '12×36 Noturno NOC', tipo: '12x36', descricao: 'Turno noturno 19h–07h em dias alternados', equipe_id: 'eq3', ciclo_semanas: 2, papel: 'trabalho', turno_tipo: 'noturno', turno_inicio: '19:00', turno_fim: '07:00', sobreaviso_inicio: '19:00', sobreaviso_fim: '07:00', ativo: true },
+  { id: 'esc6', inicio_em: '2026-01-05', nome: 'Comercial Field Service', tipo: '6x1', descricao: 'Segunda a sábado, 08h–16h', equipe_id: 'eq5', ciclo_semanas: 1, papel: 'trabalho', turno_tipo: 'comercial', turno_inicio: '08:00', turno_fim: '16:00', sobreaviso_inicio: '00:00', sobreaviso_fim: '23:59', ativo: true },
+  { id: 'esc7', inicio_em: '2026-01-05', nome: 'Plantão Field Service', tipo: 'personalizada', descricao: 'Sobreaviso 16h–08h, uma semana por vez, revezando', equipe_id: 'eq5', ciclo_semanas: 2, papel: 'plantao', turno_tipo: 'sobreaviso', turno_inicio: '16:00', turno_fim: '08:00', sobreaviso_inicio: '16:00', sobreaviso_fim: '08:00', ativo: true },
+  { id: 'esc8', inicio_em: '2026-01-05', nome: 'Backup Plantão Field Service', tipo: 'personalizada', descricao: 'Sobreaviso 16h–08h, cobre a semana em que o outro está de plantão', equipe_id: 'eq5', ciclo_semanas: 2, papel: 'backup', turno_tipo: 'backup', turno_inicio: '16:00', turno_fim: '08:00', sobreaviso_inicio: '16:00', sobreaviso_fim: '08:00', ativo: true },
+  { id: 'esc9', inicio_em: '2026-01-05', nome: 'Cobertura de Fim de Semana N1', tipo: 'personalizada', descricao: 'Sábado e domingo, 08h–20h', equipe_id: 'eq1', ciclo_semanas: 1, papel: 'trabalho', turno_tipo: 'especial', turno_inicio: '08:00', turno_fim: '20:00', sobreaviso_inicio: '00:00', sobreaviso_fim: '23:59', ativo: true },
 ];
 
 let seqDetalhe = 1;
@@ -273,34 +272,31 @@ function turnosSemana(
 }
 
 /**
- * Par 12×36 montado pelo próprio compositor da aplicação — assim a massa de
+ * Grade 12×36 montada pelo próprio compositor da aplicação — assim a massa de
  * demonstração nunca fica com um padrão que a tela não produziria.
  */
-function par12x36(
-  escalaA: string,
-  escalaB: string | null,
+function grade12x36(
+  escalaId: string,
   horaInicio: string,
   horaFim: string,
   tipo: TipoPlantao,
 ): EscalaDetalhe[] {
-  const par = gerarRevezamentoDiario({ diaBase: ANCORA, horaInicio, horaFim, tipo });
-  const comIds = (escalaId: string, linhas: Omit<EscalaDetalhe, 'id' | 'escala_id'>[]) =>
-    linhas.map((d) => ({ ...d, id: proximoIdDetalhe(), escala_id: escalaId }));
-  return [
-    ...comIds(escalaA, par.detalhesPosicao1),
-    ...(escalaB ? comIds(escalaB, par.detalhesPosicao2) : []),
-  ];
+  return gerarRevezamentoDiario({ diaBase: ANCORA, horaInicio, horaFim, tipo }).detalhes.map((d) => ({
+    ...d,
+    id: proximoIdDetalhe(),
+    escala_id: escalaId,
+  }));
 }
 
 export const escalaDetalhes: EscalaDetalhe[] = [
-  // Dias alternados, e a parceira cobre exatamente os dias que a primeira
-  // folga: juntas fecham a semana inteira sem nunca coincidir.
-  ...par12x36('esc1', 'esc2', '07:00', '19:00', 'diurno'),
+  // Dias alternados: quem está na posição 2 cobre exatamente os dias que a
+  // posição 1 folga, sem precisar de uma segunda escala.
+  ...grade12x36('esc1', '07:00', '19:00', 'diurno'),
   ...turnosSemana('esc3', { 1: [1, 2, 3, 4, 5] }, '08:00', '17:00', 'comercial'),
   // NOC: um titular solo no diurno e outro no noturno, cada um em dias
   // alternados — janelas de horário diferentes, mesmo desenho de dias.
-  ...par12x36('esc4', null, '07:00', '19:00', 'diurno'),
-  ...par12x36('esc5', null, '19:00', '07:00', 'noturno'),
+  ...grade12x36('esc4', '07:00', '19:00', 'diurno'),
+  ...grade12x36('esc5', '19:00', '07:00', 'noturno'),
   ...turnosSemana('esc6', { 1: [1, 2, 3, 4, 5, 6] }, '08:00', '16:00', 'comercial'),
   // "Ligado" a semana inteira (0–6) na semana 1 do ciclo da pessoa — a
   // âncora de cada vínculo é que decide qual semana civil é essa.
@@ -317,7 +313,8 @@ const ANCORA_SEGUINTE = '2026-01-12';
 
 export const escalaFuncionarios: EscalaFuncionario[] = [
   { id: 'ef01', funcionario_id: 'f03', escala_id: 'esc1', ancora_em: ANCORA, data_inicio: dia(-180), data_fim: dia(185) },
-  { id: 'ef02', funcionario_id: 'f04', escala_id: 'esc2', ancora_em: ANCORA, data_inicio: dia(-180), data_fim: dia(185) },
+  // Posição 2 do mesmo rodízio: uma semana depois na âncora.
+  { id: 'ef02', funcionario_id: 'f04', escala_id: 'esc1', ancora_em: ANCORA_SEGUINTE, data_inicio: dia(-180), data_fim: dia(185) },
   { id: 'ef03', funcionario_id: 'f05', escala_id: 'esc3', ancora_em: ANCORA, data_inicio: dia(-180), data_fim: dia(185) },
   { id: 'ef04', funcionario_id: 'f06', escala_id: 'esc3', ancora_em: ANCORA, data_inicio: dia(-180), data_fim: dia(185) },
   { id: 'ef05', funcionario_id: 'f18', escala_id: 'esc3', ancora_em: ANCORA, data_inicio: dia(-120), data_fim: dia(185) },

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Download, Pencil, Plus, Search, UserMinus, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
@@ -511,7 +511,20 @@ export default function FuncionariosPage() {
               <Campo rotulo="Telefone">{funcionario.telefone}</Campo>
               <Campo rotulo="Local">{funcionario.local || '—'}</Campo>
               <Campo rotulo="Departamento">{departamentoDe(funcionario.departamento_id)}</Campo>
-              <Campo rotulo="Equipe">{equipeDe(funcionario.equipe_id)}</Campo>
+              <Campo rotulo="Equipe">
+                {/* A equipe leva direto para a escala dela: é lá que se vê o
+                    que essa pessoa faz em cada dia do mês. */}
+                {equipes.some((e) => e.id === funcionario.equipe_id) ? (
+                  <Link
+                    to={`/equipes/${funcionario.equipe_id}/escala`}
+                    className="font-medium text-primary underline-offset-4 hover:underline"
+                  >
+                    {equipeDe(funcionario.equipe_id)}
+                  </Link>
+                ) : (
+                  equipeDe(funcionario.equipe_id)
+                )}
+              </Campo>
               <Campo rotulo="Gestor direto">{nomeDe(funcionario.gestor_id)}</Campo>
               <Campo rotulo="Idade">
                 {funcionario.data_nascimento ? `${idade(funcionario.data_nascimento)} anos` : '—'}

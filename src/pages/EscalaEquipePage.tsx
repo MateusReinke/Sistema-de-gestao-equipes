@@ -22,9 +22,14 @@ import {
   Download,
   Mail,
   Palette,
+  Pencil,
   Phone,
   Plus,
+  Repeat,
+  ShieldHalf,
+  SlidersHorizontal,
   Trash2,
+  UserPlus,
   UsersRound,
   Wand2,
 } from 'lucide-react';
@@ -46,8 +51,33 @@ import {
   Indicador,
 } from '@/components/comum';
 import { useDados, novoId } from '@/data/store';
+import { EditorEscala } from '@/components/escalas/EditorEscala';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/contexts/AuthContext';
-import { DIAS_SEMANA, diaDaSemana, formatarData, formatarMesAno, hoje, paraIso } from '@/lib/date';
+import {
+  DIAS_SEMANA,
+  diaDaSemana,
+  formatarData,
+  formatarMesAno,
+  hoje,
+  inicioDaSemana,
+  paraIso,
+} from '@/lib/date';
 import { baixarCsv } from '@/lib/export';
 import { calcularSaldoFerias } from '@/lib/rh';
 import {
@@ -64,7 +94,17 @@ import {
 } from '@/lib/turnos';
 import { coberturaPorDia, diasDoIntervalo, projetarEscalaEquipe } from '@/lib/projecaoEscala';
 import { STATUS_FUNCIONARIO, CLASSE_STATUS_FUNCIONARIO, TIPO_ESCALA, TIPO_PLANTAO } from '@/lib/labels';
-import type { Acionamento, CorTurno, Funcionario, TipoPlantao, TipoTurno } from '@/types/sgo';
+import { gerarRevezamentoDiario } from '@/lib/composicaoEscalas';
+import { detalhesDoTurno } from '@/lib/turnos';
+import type {
+  Acionamento,
+  CorTurno,
+  Escala,
+  Funcionario,
+  TipoEscala,
+  TipoPlantao,
+  TipoTurno,
+} from '@/types/sgo';
 
 export default function EscalaEquipePage() {
   const { id = '' } = useParams();
@@ -84,6 +124,12 @@ export default function EscalaEquipePage() {
     removerTipoTurno,
     salvarEscalaExcecao,
     removerEscalaExcecao,
+    salvarEscala,
+    removerEscala,
+    salvarGradeEscala,
+    salvarEscalaFuncionario,
+    removerEscalaFuncionario,
+    salvarFuncionario,
   } = useDados();
   const { podeGerenciar } = useAuth();
 
@@ -98,10 +144,18 @@ export default function EscalaEquipePage() {
     { tipo: 'pessoa'; id: string } | { tipo: 'turno'; id: string } | null
   >(null);
   const [alvo, setAlvo] = useState<string | null>(null);
+  const [escalaEmEdicao, setEscalaEmEdicao] = useState<Escala | null>(null);
+  const [escalaEhNova, setEscalaEhNova] = useState(false);
+  const [escalaAExcluir, setEscalaAExcluir] = useState<Escala | null>(null);
+  const [adicionarPessoa, setAdicionarPessoa] = useState(false);
+  const [pessoaParaAdicionar, setPessoaParaAdicionar] = useState('');
 
   const ano = mesAtual.getFullYear();
   const mes = mesAtual.getMonth();
   const hojeIso = hoje();
+  // O rodízio se conta em semanas de calendário, então a referência é o
+  // domingo — assim "posição 1" quer dizer a mesma coisa em qualquer dia.
+  const inicioDaSemanaIso = inicioDaSemana(hojeIso);
 
   const primeiroDia = `${ano}-${String(mes + 1).padStart(2, '0')}-01`;
   const ultimoDia = paraIso(new Date(ano, mes + 1, 0));
@@ -236,6 +290,86 @@ export default function EscalaEquipePage() {
       await ajustarDia(funcionarioIdDaLinha, data, turno);
     }
     setArrastando(null);
+  };
+
+  /**
+   * Cria uma escala já com o padrão do modelo escolhido.
+   *
+   * Um par 12×36 é a escala mais fácil de montar errado à mão — o modelo já
+   * entrega o ciclo de 2 posições e a grade de dias alternados, bastando dizer
+   * quem ocupa cada posição.
+   */
+  const novaEscala = async (modelo: 'em-branco' | '12x36' | 'comercial' | 'plantao') => {
+    const base: Escala = {
+      id: novoId('esc'),
+      nome: '',
+      tipo: 'personalizada',
+      descricao: '',
+      equipe_id: id,
+      ciclo_semanas: 1,
+      inicio_em: inicioDaSemanaIso,
+      papel: 'trabalho',
+      turno_tipo: 'comercial',
+      turno_inicio: '08:00',
+      turno_fim: '17:00',
+      sobreaviso_inicio: '00:00',
+      sobreaviso_fim: '23:59',
+      ativo: true,
+    };
+
+    const molde: Record<typeof modelo, Partial<Escala>> = {
+      'em-branco': {},
+      '12x36': { nome: 'Novo 12×36', tipo: '12x36', ciclo_semanas: 2 },
+      comercial: { nome: 'Novo comercial', tipo: '5x2', ciclo_semanas: 1 },
+      plantao: { nome: 'Novo plantão', tipo: 'personalizada', ciclo_semanas: 2, papel: 'plantao' },
+    };
+    const escala: Escala = { ...base, ...molde[modelo] };
+
+    try {
+      await salvarEscala(escala);
+
+      if (modelo === '12x36') {
+        // Dias alternados: o modelo já nasce com a grade certa.
+        const par = gerarRevezamentoDiario({
+          diaBase: inicioDaSemanaIso,
+          horaInicio: '19:00',
+          horaFim: '07:00',
+          tipo: 'noturno',
+        });
+        await salvarGradeEscala(escala.id, par.detalhes);
+      } else if (modelo === 'comercial') {
+        const turno = legenda[0] ?? FOLGA;
+        await salvarGradeEscala(
+          escala.id,
+          [1, 2, 3, 4, 5].flatMap((dia) => detalhesDoTurno(turno, 1, dia)),
+        );
+      } else if (modelo === 'plantao') {
+        const turno = legenda.find((t) => t.acionamento === 'plantao') ?? legenda[0] ?? FOLGA;
+        await salvarGradeEscala(
+          escala.id,
+          [0, 1, 2, 3, 4, 5, 6].flatMap((dia) => detalhesDoTurno(turno, 1, dia)),
+        );
+      }
+
+      setEscalaEmEdicao(escala);
+      setEscalaEhNova(false);
+    } catch {
+      // Erro já virou toast em useDados().
+    }
+  };
+
+  /** Move uma pessoa para esta equipe. */
+  const porNaEquipe = async () => {
+    const pessoa = funcionarios.find((f) => f.id === pessoaParaAdicionar);
+    if (!pessoa) return toast.error('Escolha quem entra na equipe.');
+    try {
+      await salvarFuncionario({ ...pessoa, equipe_id: id });
+      toast.success(`${pessoa.nome} agora é da equipe ${equipe?.nome ?? ''}.`);
+      setPessoaParaAdicionar('');
+      setAdicionarPessoa(false);
+    } catch {
+      // Erro já virou toast em useDados().
+    }
   };
 
   const exportar = () =>
@@ -542,8 +676,13 @@ export default function EscalaEquipePage() {
       {/* ----------------------------------------------------------- time */}
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="shadow-card">
-          <CardHeader className="pb-3">
+          <CardHeader className="flex flex-row items-center justify-between pb-3">
             <CardTitle className="text-base">Quem está na equipe</CardTitle>
+            {podeGerenciar && (
+              <Button variant="outline" size="sm" onClick={() => setAdicionarPessoa(true)}>
+                <UserPlus className="mr-2 h-3.5 w-3.5" /> Adicionar pessoa
+              </Button>
+            )}
           </CardHeader>
           <CardContent>
             {linhas.length === 0 ? (
@@ -606,9 +745,47 @@ export default function EscalaEquipePage() {
           <CardHeader className="flex flex-row items-center justify-between pb-3">
             <CardTitle className="text-base">Escalas desta equipe</CardTitle>
             {podeGerenciar && (
-              <Button variant="outline" size="sm" onClick={() => navegar('/escalas')}>
-                <CalendarPlus className="mr-2 h-3.5 w-3.5" /> Nova escala
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <CalendarPlus className="mr-2 h-3.5 w-3.5" /> Nova escala
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-72">
+                  <DropdownMenuItem onClick={() => novaEscala('12x36')} className="gap-2.5 py-2.5">
+                    <Repeat className="h-4 w-4 shrink-0 text-primary" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">12×36 (dia sim, dia não)</p>
+                      <p className="text-xs text-muted-foreground">
+                        2 posições, grade alternada pronta. Basta dizer quem é cada posição.
+                      </p>
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => novaEscala('comercial')} className="gap-2.5 py-2.5">
+                    <CalendarDays className="h-4 w-4 shrink-0 text-primary" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">Comercial 5×2</p>
+                      <p className="text-xs text-muted-foreground">Segunda a sexta, uma posição só.</p>
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => novaEscala('plantao')} className="gap-2.5 py-2.5">
+                    <ShieldHalf className="h-4 w-4 shrink-0 text-primary" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">Plantão rotativo</p>
+                      <p className="text-xs text-muted-foreground">
+                        Sobreaviso a semana inteira, girando entre as posições.
+                      </p>
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => novaEscala('em-branco')} className="gap-2.5 py-2.5">
+                    <SlidersHorizontal className="h-4 w-4 shrink-0 text-primary" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">Em branco</p>
+                      <p className="text-xs text-muted-foreground">Monto a grade do zero.</p>
+                    </div>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
           </CardHeader>
           <CardContent>
@@ -616,38 +793,63 @@ export default function EscalaEquipePage() {
               <EstadoVazio
                 icone={CalendarDays}
                 titulo="Nenhuma escala ainda"
-                descricao="Crie uma escala para esta equipe e o calendário acima se preenche sozinho."
-                acao={
-                  podeGerenciar ? (
-                    <Button size="sm" onClick={() => navegar('/escalas')}>
-                      <Plus className="mr-2 h-3.5 w-3.5" /> Criar escala
-                    </Button>
-                  ) : undefined
-                }
+                descricao="Crie uma escala e o calendário acima se preenche sozinho."
               />
             ) : (
               <div className="space-y-1.5">
                 {escalasDaEquipe.map((e) => {
                   const vinculados = escalaFuncionarios.filter((v) => v.escala_id === e.id).length;
+                  const semGrade = !escalaDetalhes.some((d) => d.escala_id === e.id);
                   return (
-                    <button
+                    <div
                       key={e.id}
-                      type="button"
-                      onClick={() => navegar('/escalas')}
-                      className="flex w-full items-center gap-2 rounded-lg border p-2 text-left transition-colors hover:bg-accent"
+                      className={`flex items-center gap-2 rounded-lg border p-2 ${!e.ativo ? 'opacity-60' : ''}`}
                     >
-                      <div className="min-w-0 flex-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEscalaEmEdicao(e);
+                          setEscalaEhNova(false);
+                        }}
+                        className="min-w-0 flex-1 text-left"
+                      >
                         <p className="truncate text-sm font-medium">{e.nome}</p>
                         <p className="tabular truncate text-[11px] text-muted-foreground">
-                          ciclo de {e.ciclo_semanas} semana(s) · {vinculados} vinculado(s)
+                          {e.ciclo_semanas} posição(ões) · {vinculados} pessoa(s)
+                          {semGrade && ' · grade em branco'}
                         </p>
-                      </div>
+                      </button>
                       <BadgeStatus
                         texto={TIPO_ESCALA[e.tipo]}
                         classe="bg-primary/10 text-primary border-primary/25"
                         className="text-[10px]"
                       />
-                    </button>
+                      {podeGerenciar && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            title="Editar escala"
+                            onClick={() => {
+                              setEscalaEmEdicao(e);
+                              setEscalaEhNova(false);
+                            }}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive"
+                            title="Excluir escala"
+                            onClick={() => setEscalaAExcluir(e)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -655,6 +857,81 @@ export default function EscalaEquipePage() {
           </CardContent>
         </Card>
       </div>
+
+      <EditorEscala
+        escala={escalaEmEdicao}
+        ehNova={escalaEhNova}
+        aoFechar={() => setEscalaEmEdicao(null)}
+        legenda={legenda}
+        detalhes={escalaDetalhes.filter((d) => d.escala_id === escalaEmEdicao?.id)}
+        vinculos={escalaFuncionarios.filter((v) => v.escala_id === escalaEmEdicao?.id)}
+        funcionarios={funcionarios.filter((f) => f.equipe_id === id)}
+        salvarEscala={salvarEscala}
+        salvarGrade={salvarGradeEscala}
+        salvarVinculo={salvarEscalaFuncionario}
+        removerVinculo={removerEscalaFuncionario}
+      />
+
+      <AlertDialog open={escalaAExcluir !== null} onOpenChange={(v) => !v && setEscalaAExcluir(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir a escala {escalaAExcluir?.nome}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A grade do ciclo e as posições somem junto. Os plantões que já foram gerados ficam no
+              calendário de Plantões — apague-os por lá se também não quiser mais.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                if (!escalaAExcluir) return;
+                await removerEscala(escalaAExcluir.id);
+                toast.success('Escala excluída.');
+                setEscalaAExcluir(null);
+              }}
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Sheet open={adicionarPessoa} onOpenChange={(v) => !v && setAdicionarPessoa(false)}>
+        <SheetContent className="w-full overflow-y-auto sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Adicionar pessoa a {equipe.nome}</SheetTitle>
+          </SheetHeader>
+          <div className="mt-6 space-y-4">
+            <p className="text-sm text-muted-foreground">
+              A pessoa passa a ser desta equipe e aparece no calendário acima. Ela sai da equipe
+              anterior — alguém pertence a uma equipe de cada vez.
+            </p>
+            <div className="space-y-1.5">
+              <Label>Funcionário</Label>
+              <Select value={pessoaParaAdicionar} onValueChange={setPessoaParaAdicionar}>
+                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>
+                  {funcionarios
+                    .filter((f) => f.status !== 'desligado' && f.equipe_id !== id)
+                    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+                    .map((f) => (
+                      <SelectItem key={f.id} value={f.id}>
+                        {f.nome} — {equipes.find((e) => e.id === f.equipe_id)?.nome ?? 'sem equipe'}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <Button variant="ghost" className="flex-1" onClick={() => setAdicionarPessoa(false)}>
+                Cancelar
+              </Button>
+              <Button className="flex-1" onClick={porNaEquipe}>Adicionar</Button>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <EditorLegenda
         aberto={legendaAberta}

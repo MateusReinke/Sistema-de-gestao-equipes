@@ -7,7 +7,12 @@
 import { describe, expect, it } from 'vitest';
 import type { EscalaDetalhe, EscalaFuncionario } from '@/types/sgo';
 import { plantoesGerados } from './geracaoPlantoes';
-import { gerarRevezamentoDiario, gerarRodizioComBackup } from './composicaoEscalas';
+import {
+  ancoraDaPosicao,
+  gerarRevezamentoDiario,
+  gerarRodizioComBackup,
+  posicaoDaAncora,
+} from './composicaoEscalas';
 
 function comIds(escalaId: string, detalhes: Omit<EscalaDetalhe, 'id' | 'escala_id'>[]): EscalaDetalhe[] {
   return detalhes.map((d, i) => ({ ...d, id: `${escalaId}-${i}`, escala_id: escalaId }));
@@ -21,89 +26,115 @@ function vinculo(
   return { ...v, id, escala_id: escalaId };
 }
 
-describe('gerarRevezamentoDiario', () => {
-  // Mesmo cenário do par 12×36 da NOC em geracaoPlantoes.test.ts — a prova de
-  // que este compositor produz o mesmo par que antes só existia escrito à mão.
+describe('gerarRevezamentoDiario — o par inteiro numa escala só', () => {
   const DIA_BASE = '2026-01-05'; // segunda
-  const DE = '2026-01-05';
-  const ATE = '2026-01-18';
+  const DE = '2026-01-04'; // domingo que abre a semana
+  const ATE = '2026-01-17';
 
-  const par = gerarRevezamentoDiario({
+  const revezamento = gerarRevezamentoDiario({
     diaBase: DIA_BASE,
     horaInicio: '07:00',
     horaFim: '19:00',
     tipo: 'diurno',
   });
+  const detalhes = comIds('esc', revezamento.detalhes);
 
-  const detalhesA = comIds('esc-a', par.detalhesPosicao1);
-  const detalhesB = comIds('esc-b', par.detalhesPosicao2);
+  /** Duas pessoas na MESMA escala, em posições diferentes do rodízio. */
+  const naPosicao = (id: string, posicao: number) =>
+    vinculo(id, 'esc', {
+      funcionario_id: id,
+      ancora_em: ancoraDaPosicao(DIA_BASE, posicao),
+      data_inicio: DE,
+      data_fim: ATE,
+    });
 
-  const pessoaA = vinculo('vA', 'esc-a', {
-    funcionario_id: 'fA',
-    ancora_em: DIA_BASE,
-    data_inicio: DE,
-    data_fim: ATE,
-  });
-  const pessoaB = vinculo('vB', 'esc-b', {
-    funcionario_id: 'fB',
-    ancora_em: DIA_BASE,
-    data_inicio: DE,
-    data_fim: ATE,
-  });
-
-  it('posição 1 trabalha em diaBase e nos dias alternados dele', () => {
-    const datas = plantoesGerados(pessoaA, detalhesA, par.ciclo_semanas, DE, ATE).map((p) => p.data);
-    expect(datas).toEqual([
+  it('a posição 1 trabalha em dias alternados', () => {
+    const datas = plantoesGerados(naPosicao('A', 0), detalhes, revezamento.ciclo_semanas, DE, ATE);
+    expect(datas.map((p) => p.data)).toEqual([
       '2026-01-05', '2026-01-07', '2026-01-09', '2026-01-11',
       '2026-01-13', '2026-01-15', '2026-01-17',
     ]);
   });
 
-  it('posição 2 cobre exatamente os dias que a posição 1 folga, sem sobra nem lacuna', () => {
-    const datasA = plantoesGerados(pessoaA, detalhesA, par.ciclo_semanas, DE, ATE).map((p) => p.data);
-    const datasB = plantoesGerados(pessoaB, detalhesB, par.ciclo_semanas, DE, ATE).map((p) => p.data);
+  it('a posição 2 cobre exatamente os dias que a posição 1 folga', () => {
+    const ciclo = revezamento.ciclo_semanas;
+    const a = plantoesGerados(naPosicao('A', 0), detalhes, ciclo, DE, ATE).map((p) => p.data);
+    const b = plantoesGerados(naPosicao('B', 1), detalhes, ciclo, DE, ATE).map((p) => p.data);
 
-    expect(datasB).toEqual([
-      '2026-01-06', '2026-01-08', '2026-01-10', '2026-01-12',
-      '2026-01-14', '2026-01-16', '2026-01-18',
+    expect(b).toEqual([
+      '2026-01-04', '2026-01-06', '2026-01-08', '2026-01-10',
+      '2026-01-12', '2026-01-14', '2026-01-16',
     ]);
-
-    const todasAsDatas = Array.from({ length: 14 }, (_, i) =>
-      String(new Date(Date.UTC(2026, 0, 5 + i)).toISOString().slice(0, 10)),
-    );
-    expect([...datasA, ...datasB].sort()).toEqual(todasAsDatas);
-    // Nunca os dois no mesmo dia.
-    expect(datasA.filter((d) => datasB.includes(d))).toEqual([]);
+    // Os 14 dias da janela, sem sobra nem lacuna, e nunca os dois no mesmo dia.
+    expect([...a, ...b].sort()).toHaveLength(14);
+    expect(a.filter((d) => b.includes(d))).toEqual([]);
   });
 
-  it('funciona para qualquer dia da semana como base, não só segunda', () => {
-    // Base num sábado — garante que a paridade não depende de diaBase cair
-    // sempre numa semana "redonda".
+  it('funciona para qualquer dia da semana como base', () => {
     const base = '2026-01-10'; // sábado
-    const de = '2026-01-10';
-    const ate = '2026-01-23';
-    const outroPar = gerarRevezamentoDiario({
+    const de = '2026-01-04';
+    const ate = '2026-01-17';
+    const outro = gerarRevezamentoDiario({
       diaBase: base,
       horaInicio: '19:00',
       horaFim: '07:00',
       tipo: 'noturno',
     });
-    const dA = comIds('esc-c', outroPar.detalhesPosicao1);
-    const dB = comIds('esc-d', outroPar.detalhesPosicao2);
-    const vA = vinculo('vC', 'esc-c', { funcionario_id: 'fC', ancora_em: base, data_inicio: de, data_fim: ate });
-    const vB = vinculo('vD', 'esc-d', { funcionario_id: 'fD', ancora_em: base, data_inicio: de, data_fim: ate });
+    const d = comIds('esc2', outro.detalhes);
+    const pos = (id: string, p: number) =>
+      vinculo(id, 'esc2', {
+        funcionario_id: id,
+        ancora_em: ancoraDaPosicao(base, p),
+        data_inicio: de,
+        data_fim: ate,
+      });
 
-    const datasA = plantoesGerados(vA, dA, outroPar.ciclo_semanas, de, ate).map((p) => p.data);
-    const datasB = plantoesGerados(vB, dB, outroPar.ciclo_semanas, de, ate).map((p) => p.data);
+    const a = plantoesGerados(pos('C', 0), d, outro.ciclo_semanas, de, ate).map((x) => x.data);
+    const b = plantoesGerados(pos('D', 1), d, outro.ciclo_semanas, de, ate).map((x) => x.data);
+    expect(a.filter((x) => b.includes(x))).toEqual([]);
+    expect([...a, ...b]).toHaveLength(14);
+  });
 
-    expect(datasA).toEqual([
-      '2026-01-10', '2026-01-12', '2026-01-14', '2026-01-16',
-      '2026-01-18', '2026-01-20', '2026-01-22',
-    ]);
-    expect(datasB).toEqual([
-      '2026-01-11', '2026-01-13', '2026-01-15', '2026-01-17',
-      '2026-01-19', '2026-01-21', '2026-01-23',
-    ]);
+  it('o dia da semana da data-base não muda o resultado, só a semana', () => {
+    // Segunda e quinta da mesma semana têm de produzir a mesma escala.
+    const deSegunda = gerarRevezamentoDiario({ diaBase: '2026-01-05', horaInicio: '07:00', horaFim: '19:00', tipo: 'diurno' });
+    const deQuinta = gerarRevezamentoDiario({ diaBase: '2026-01-08', horaInicio: '07:00', horaFim: '19:00', tipo: 'diurno' });
+    const datas = (r: typeof deSegunda, base: string) =>
+      plantoesGerados(
+        vinculo('X', 'e', { funcionario_id: 'X', ancora_em: ancoraDaPosicao(base, 0), data_inicio: DE, data_fim: ATE }),
+        comIds('e', r.detalhes),
+        r.ciclo_semanas,
+        DE,
+        ATE,
+      ).map((p) => p.data);
+
+    // Bases de paridade oposta geram os complementos — juntas, a semana toda.
+    const s = datas(deSegunda, '2026-01-05');
+    const q = datas(deQuinta, '2026-01-08');
+    expect(s.filter((d) => q.includes(d))).toEqual([]);
+    expect([...s, ...q]).toHaveLength(14);
+  });
+});
+
+describe('posicaoDaAncora', () => {
+  it('devolve a posição que a âncora representa', () => {
+    const inicio = '2026-01-04';
+    expect(posicaoDaAncora(inicio, ancoraDaPosicao(inicio, 0), 3)).toBe(0);
+    expect(posicaoDaAncora(inicio, ancoraDaPosicao(inicio, 1), 3)).toBe(1);
+    expect(posicaoDaAncora(inicio, ancoraDaPosicao(inicio, 2), 3)).toBe(2);
+    // Dá a volta: a posição 3 de um ciclo de 3 é a mesma que a posição 0.
+    expect(posicaoDaAncora(inicio, ancoraDaPosicao(inicio, 3), 3)).toBe(0);
+  });
+
+  it('não depende do dia da semana da âncora, só da semana', () => {
+    const inicio = '2026-01-04'; // domingo
+    // Qualquer dia da mesma semana tem de dar a mesma posição.
+    for (const d of ['2026-01-04', '2026-01-06', '2026-01-10']) {
+      expect(posicaoDaAncora(inicio, d, 2)).toBe(0);
+    }
+    for (const d of ['2026-01-11', '2026-01-14', '2026-01-17']) {
+      expect(posicaoDaAncora(inicio, d, 2)).toBe(1);
+    }
   });
 });
 

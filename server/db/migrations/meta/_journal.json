@@ -50,6 +50,13 @@
       "when": 1789149432894,
       "tag": "0006_little_unus",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789151167749,
+      "tag": "0007_fair_zaran",
+      "breakpoints": true
     }
   ]
 }

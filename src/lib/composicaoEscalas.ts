@@ -14,54 +14,55 @@
  * daquele arquivo para o porquê de cada padrão de âncora.
  */
 import type { EscalaDetalhe, EscalaFuncionario, HoraMinuto, IsoDate, TipoPlantao } from '@/types/sgo';
-import { diaDaSemana, somarDias } from '@/lib/date';
+import { diaDaSemana, diferencaSemanas, somarDias } from '@/lib/date';
 
 type Detalhe = Omit<EscalaDetalhe, 'id' | 'escala_id'>;
+
+/** Resto não-negativo: a âncora pode vir depois do início do rodízio. */
+function moduloPositivo(a: number, n: number): number {
+  return ((a % n) + n) % n;
+}
+
 type Vinculo = Omit<EscalaFuncionario, 'id' | 'escala_id'>;
 
 /* --------------------------------------------------- revezamento dia-a-dia */
 
 export interface RevezamentoDiario {
-  /** Um par dia-sim-dia-não sempre fecha em 2 semanas — ver `geracaoPlantoes.ts`. */
+  /** Um par dia-sim-dia-não sempre fecha em 2 semanas. */
   ciclo_semanas: 2;
-  /** Grade de quem trabalha em `diaBase` e nos dias alternados dele. */
-  detalhesPosicao1: Detalhe[];
-  /** O complemento exato: cobre só os dias em que a posição 1 folga. */
-  detalhesPosicao2: Detalhe[];
+  /** Grade única da escala — quem faz o quê sai da posição de cada pessoa. */
+  detalhes: Detalhe[];
 }
 
 /**
- * Grade de um par que reveza dia sim, dia não (12×36) a partir de um único
- * dia de referência — em vez de pedir para quem cadastra escrever a grade
- * das duas pessoas à mão (e errar a da segunda, que é a causa mais comum de
- * a escala "não fechar").
+ * Grade de uma escala em que se trabalha dia sim, dia não (12×36).
  *
  * A regra sai da paridade. Como a semana do ciclo é contada em semanas de
- * calendário (ver `geracaoPlantoes.ts`), a semana 1 é a semana do domingo de
- * `diaBase` e a semana 2 é a seguinte — deslocada de exatos 7 dias, que é
- * ímpar em "dias alternados". Então, dentro da semana 1, trabalha-se nos dias
- * da semana de **mesma paridade** que `diaBase`; na semana 2, nos de paridade
- * **oposta**. É o padrão que a planilha de origem já usava no par noturno da
- * NOC: semana 1 seg/qua/sex, semana 2 dom/ter/qui/sáb.
+ * calendário (ver `geracaoPlantoes.ts`), a semana 2 fica deslocada de exatos 7
+ * dias da semana 1 — número ímpar. Então, na semana 1 trabalha-se nos dias da
+ * semana de **mesma paridade** que `diaBase`, e na semana 2 nos de paridade
+ * **oposta**. É o padrão do par noturno da NOC na planilha de origem: semana 1
+ * seg/qua/sex, semana 2 dom/ter/qui/sáb.
  *
- * As duas posições compartilham a mesma âncora (`diaBase`); a posição 2 é a
- * posição 1 com as semanas 1 e 2 trocadas, o que cobre exatamente os dias que
- * a outra folga.
+ * Uma escala só atende o par inteiro: a segunda pessoa não precisa de outra
+ * escala nem de outro template — basta ocupar a **posição 2** do rodízio, que
+ * é uma semana de distância na âncora. Com isso ela cai na semana 2 do ciclo
+ * enquanto a primeira está na semana 1, o que cobre exatamente os dias que a
+ * outra folga (ver `ancoraDaPosicao`).
  */
 export function gerarRevezamentoDiario(params: {
   diaBase: IsoDate;
   horaInicio: HoraMinuto;
   horaFim: HoraMinuto;
   tipo: TipoPlantao;
+  tipoTurnoId?: string | null;
 }): RevezamentoDiario {
-  const { diaBase, horaInicio, horaFim, tipo } = params;
+  const { diaBase, horaInicio, horaFim, tipo, tipoTurnoId = null } = params;
   const paridadeBase = diaDaSemana(diaBase) % 2;
 
   const todosOsDias = [0, 1, 2, 3, 4, 5, 6];
-  const mesmaParidade = todosOsDias.filter((d) => d % 2 === paridadeBase);
-  const paridadeOposta = todosOsDias.filter((d) => d % 2 !== paridadeBase);
-
   const linha = (semana: 1 | 2, dia: number): Detalhe => ({
+    tipo_turno_id: tipoTurnoId,
     semana_do_ciclo: semana,
     dia_semana: dia,
     hora_inicio: horaInicio,
@@ -71,15 +72,38 @@ export function gerarRevezamentoDiario(params: {
 
   return {
     ciclo_semanas: 2,
-    detalhesPosicao1: [
-      ...mesmaParidade.map((d) => linha(1, d)),
-      ...paridadeOposta.map((d) => linha(2, d)),
-    ],
-    detalhesPosicao2: [
-      ...paridadeOposta.map((d) => linha(1, d)),
-      ...mesmaParidade.map((d) => linha(2, d)),
+    detalhes: [
+      ...todosOsDias.filter((d) => d % 2 === paridadeBase).map((d) => linha(1, d)),
+      ...todosOsDias.filter((d) => d % 2 !== paridadeBase).map((d) => linha(2, d)),
     ],
   };
+}
+
+/* ------------------------------------------------------ posição no rodízio */
+
+/**
+ * Âncora de quem ocupa a posição `posicao` (0-based) de um rodízio que começa
+ * em `inicioEm`.
+ *
+ * "Posição" é como o rodízio se explica para quem cadastra: numa escala de 3
+ * semanas, a posição 1 está de plantão na primeira semana, a 2 na seguinte, a
+ * 3 na terceira. Por baixo isso é só a âncora deslocada de semanas inteiras —
+ * que é o que o motor de geração entende.
+ */
+export function ancoraDaPosicao(inicioEm: IsoDate, posicao: number, semanasPorPosicao = 1): IsoDate {
+  return somarDias(inicioEm, posicao * 7 * semanasPorPosicao);
+}
+
+/** Caminho inverso: em que posição do rodízio uma âncora põe a pessoa. */
+export function posicaoDaAncora(
+  inicioEm: IsoDate,
+  ancoraEm: IsoDate,
+  cicloSemanas: number,
+  semanasPorPosicao = 1,
+): number {
+  const posicoes = Math.max(1, Math.floor(cicloSemanas / semanasPorPosicao));
+  const semanas = diferencaSemanas(inicioEm, ancoraEm);
+  return moduloPositivo(Math.floor(semanas / semanasPorPosicao), posicoes);
 }
 
 /* ------------------------------------------------------- rodízio + backup */

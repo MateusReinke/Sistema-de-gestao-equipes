@@ -244,6 +244,11 @@ export interface Escala {
    * um rodízio de 2 dias corridos volta a cair no mesmo dia da semana).
    */
   ciclo_semanas: number;
+  /**
+   * Semana em que o rodízio começa — a referência das posições. Quem ocupa a
+   * posição 1 tem a âncora aqui; a posição 2, uma semana depois.
+   */
+  inicio_em: IsoDate;
   papel: PapelEscala;
 
   /**

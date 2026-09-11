@@ -13,7 +13,7 @@ import type {
   Ferias,
   Funcionario,
 } from '@/types/sgo';
-import { gerarRevezamentoDiario } from './composicaoEscalas';
+import { ancoraDaPosicao, gerarRevezamentoDiario } from './composicaoEscalas';
 import { TURNOS_PADRAO } from './turnos';
 import { coberturaPorDia, diasDoIntervalo, projetarEscalaEquipe } from './projecaoEscala';
 
@@ -46,6 +46,7 @@ function escala(id: string, parcial: Partial<Escala> = {}): Escala {
     descricao: '',
     equipe_id: EQUIPE,
     ciclo_semanas: 2,
+    inicio_em: '2026-01-04',
     papel: 'trabalho',
     turno_tipo: 'noturno',
     turno_inicio: '19:00',
@@ -84,19 +85,21 @@ const par = gerarRevezamentoDiario({
   tipo: 'noturno',
 });
 
-const detalhesPar: EscalaDetalhe[] = [
-  ...par.detalhesPosicao1.map((d, i) => ({ ...d, id: `a${i}`, escala_id: 'esc-n1' })),
-  ...par.detalhesPosicao2.map((d, i) => ({ ...d, id: `b${i}`, escala_id: 'esc-n2' })),
-];
+// Uma escala só: o que separa as duas pessoas é a posição no rodízio.
+const detalhesPar: EscalaDetalhe[] = par.detalhes.map((d, i) => ({
+  ...d,
+  id: `a${i}`,
+  escala_id: 'esc-n1',
+}));
 
 describe('projetarEscalaEquipe', () => {
   const base = {
     funcionarios: [pessoa('f1', 'Ana'), pessoa('f2', 'Bruno')],
-    escalas: [escala('esc-n1'), escala('esc-n2')],
+    escalas: [escala('esc-n1')],
     escalaDetalhes: detalhesPar,
     escalaFuncionarios: [
       vinculo('v1', 'f1', 'esc-n1', ANCORA),
-      vinculo('v2', 'f2', 'esc-n2', ANCORA),
+      vinculo('v2', 'f2', 'esc-n1', ancoraDaPosicao(ANCORA, 1)),
     ],
     ferias: [] as Ferias[],
     ausencias: [] as Ausencia[],
@@ -264,13 +267,13 @@ describe('projetarEscalaEquipe', () => {
 
   it('escala inativa não projeta nada', () => {
     const linhas = projetarEscalaEquipe(
-      { ...base, escalas: [escala('esc-n1', { ativo: false }), escala('esc-n2')] },
+      { ...base, escalas: [escala('esc-n1', { ativo: false })] },
       EQUIPE,
       '2026-01-05',
       '2026-01-11',
     );
     expect(linhas[0].dias.size).toBe(0);
-    expect(linhas[1].dias.size).toBeGreaterThan(0);
+    expect(linhas[1].dias.size).toBe(0);
   });
 });
 

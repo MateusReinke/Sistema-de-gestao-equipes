@@ -33,7 +33,6 @@ const PAGINAS = [
   { titulo: 'Funcionários', url: '/funcionarios', icone: Users },
   { titulo: 'Equipes', url: '/equipes', icone: UsersRound },
   { titulo: 'Gestores', url: '/gestores', icone: UserCog },
-  { titulo: 'Escalas', url: '/escalas', icone: CalendarClock },
   { titulo: 'Plantões', url: '/plantoes', icone: CalendarDays },
   { titulo: 'Clientes', url: '/clientes', icone: Building2 },
   { titulo: 'Aprovações', url: '/aprovacoes', icone: ClipboardCheck },
