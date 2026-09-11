@@ -54,6 +54,7 @@ import {
   CORES_DISPONIVEIS,
   CORES_TURNO,
   FOLGA,
+  FOLGA_ID,
   classeDoTurno,
   codigoCurto,
   descricaoDoTurno,
@@ -75,11 +76,14 @@ export default function EscalaEquipePage() {
     tiposTurno,
     escalaDetalhes,
     escalaFuncionarios,
+    escalaExcecoes,
     ferias,
     ausencias,
     gerarPlantoesEquipe,
     salvarTipoTurno,
     removerTipoTurno,
+    salvarEscalaExcecao,
+    removerEscalaExcecao,
   } = useDados();
   const { podeGerenciar } = useAuth();
 
@@ -87,6 +91,13 @@ export default function EscalaEquipePage() {
   const [gerando, setGerando] = useState(false);
   const [legendaAberta, setLegendaAberta] = useState(false);
   const [pessoaAberta, setPessoaAberta] = useState<Funcionario | null>(null);
+  /** Turno que o arrasto e o clique aplicam. */
+  const [pincelId, setPincelId] = useState<string>(FOLGA_ID);
+  /** O que está sendo arrastado agora — pessoa ou turno. */
+  const [arrastando, setArrastando] = useState<
+    { tipo: 'pessoa'; id: string } | { tipo: 'turno'; id: string } | null
+  >(null);
+  const [alvo, setAlvo] = useState<string | null>(null);
 
   const ano = mesAtual.getFullYear();
   const mes = mesAtual.getMonth();
@@ -99,18 +110,29 @@ export default function EscalaEquipePage() {
   const equipe = equipes.find((e) => e.id === id);
   const legenda = useMemo(() => legendaDaEquipe(tiposTurno, id), [tiposTurno, id]);
   const legendaPropria = tiposTurno.some((t) => t.equipe_id === id);
+  const paleta = useMemo(() => [FOLGA, ...legenda], [legenda]);
+  const pincel = paleta.find((t) => t.id === pincelId) ?? FOLGA;
 
   const linhas = useMemo(
     () =>
       equipe
         ? projetarEscalaEquipe(
-            { funcionarios, escalas, escalaDetalhes, escalaFuncionarios, ferias, ausencias, legenda },
+            {
+              funcionarios,
+              escalas,
+              escalaDetalhes,
+              escalaFuncionarios,
+              escalaExcecoes,
+              ferias,
+              ausencias,
+              legenda,
+            },
             equipe.id,
             primeiroDia,
             ultimoDia,
           )
         : [],
-    [equipe, funcionarios, escalas, escalaDetalhes, escalaFuncionarios, ferias, ausencias, legenda, primeiroDia, ultimoDia],
+    [equipe, funcionarios, escalas, escalaDetalhes, escalaFuncionarios, escalaExcecoes, ferias, ausencias, legenda, primeiroDia, ultimoDia],
   );
 
   const cobertura = useMemo(() => coberturaPorDia(linhas, dias), [linhas, dias]);
@@ -135,6 +157,85 @@ export default function EscalaEquipePage() {
     } finally {
       setGerando(false);
     }
+  };
+
+  /**
+   * Ajusta um dia solto de uma pessoa.
+   *
+   * Grava uma exceção por cima do ciclo, em vez de mexer na grade: trocar quem
+   * cobre um sábado não pode mudar todos os outros sábados. Quando o turno
+   * escolhido é o mesmo que o padrão já previa, a exceção é retirada — o dia
+   * volta a seguir o rodízio, sem deixar um registro que não muda nada.
+   */
+  const ajustarDia = async (funcionarioId: string, data: string, turno: TurnoLegenda) => {
+    if (!podeGerenciar) return;
+    const existente = escalaExcecoes.find(
+      (e) => e.funcionario_id === funcionarioId && e.data === data,
+    );
+    const doPadrao = linhas.find((l) => l.funcionario.id === funcionarioId)?.dias.get(data);
+
+    // Comparar por rótulo, e não por id: a equipe pode estar usando a legenda
+    // embutida, cujos ids mudam assim que ela ganha a própria.
+    const voltaAoPadrao =
+      !doPadrao?.ajustado && (doPadrao?.turno.rotulo ?? FOLGA.rotulo) === turno.rotulo;
+
+    try {
+      if (voltaAoPadrao) {
+        if (existente) await removerEscalaExcecao(existente.id);
+        return;
+      }
+
+      let tipoTurnoId: string | null = null;
+      if (turno.id !== FOLGA_ID) {
+        // Um ajuste aponta para uma linha real de `tipos_turno`. Se a equipe
+        // ainda está na legenda embutida, é aqui que ela ganha a própria — o
+        // desenho continua idêntico, só passa a existir no banco.
+        const propria = turno.equipe_id === id ? legenda : await copiarLegendaParaEquipe();
+        tipoTurnoId = propria.find((t) => t.rotulo === turno.rotulo)?.id ?? null;
+        if (!tipoTurnoId) return;
+      }
+
+      await salvarEscalaExcecao({
+        id: existente?.id ?? novoId('ex'),
+        funcionario_id: funcionarioId,
+        data,
+        tipo_turno_id: tipoTurnoId,
+        observacao: '',
+      });
+    } catch {
+      // Erro já virou toast em useDados().
+    }
+  };
+
+  /** Materializa a legenda embutida como legenda desta equipe. */
+  const copiarLegendaParaEquipe = async (): Promise<TurnoLegenda[]> => {
+    if (legendaPropria) return legenda;
+    const copia = legendaInicialDaEquipe(id, novoId);
+    for (const turno of copia) await salvarTipoTurno(turno as TipoTurno);
+    toast.info('Esta equipe passou a ter a própria legenda, para poder ser ajustada.');
+    return copia;
+  };
+
+  /** Volta um dia ajustado ao que o ciclo manda. */
+  const desfazerAjuste = async (funcionarioId: string, data: string) => {
+    const existente = escalaExcecoes.find(
+      (e) => e.funcionario_id === funcionarioId && e.data === data,
+    );
+    if (existente) await removerEscalaExcecao(existente.id);
+  };
+
+  const soltarEm = async (funcionarioIdDaLinha: string, data: string) => {
+    setAlvo(null);
+    if (!arrastando) return;
+    // Arrastar uma pessoa escala aquela pessoa no dia; arrastar um turno pinta
+    // a célula em que se soltou.
+    if (arrastando.tipo === 'pessoa') {
+      await ajustarDia(arrastando.id, data, pincel.id === FOLGA_ID ? (legenda[0] ?? FOLGA) : pincel);
+    } else {
+      const turno = paleta.find((t) => t.id === arrastando.id) ?? FOLGA;
+      await ajustarDia(funcionarioIdDaLinha, data, turno);
+    }
+    setArrastando(null);
   };
 
   const exportar = () =>
@@ -248,6 +349,33 @@ export default function EscalaEquipePage() {
         </CardHeader>
 
         <CardContent>
+          {podeGerenciar && linhas.length > 0 && (
+            <div className="mb-3 flex flex-wrap items-center gap-1.5 rounded-lg border bg-muted/40 p-2">
+              <span className="mr-1 text-[11px] text-muted-foreground">Aplicar:</span>
+              {paleta.map((turno) => (
+                <button
+                  key={turno.id}
+                  type="button"
+                  draggable
+                  onDragStart={() => setArrastando({ tipo: 'turno', id: turno.id })}
+                  onDragEnd={() => { setArrastando(null); setAlvo(null); }}
+                  onClick={() => setPincelId(turno.id)}
+                  title={`${descricaoDoTurno(turno)} — clique para selecionar, ou arraste até um dia`}
+                  className={`cursor-grab rounded border px-2 py-1 text-[11px] font-medium transition-all active:cursor-grabbing ${classeDoTurno(turno)} ${
+                    pincelId === turno.id
+                      ? 'ring-2 ring-ring ring-offset-1 ring-offset-background'
+                      : 'opacity-75 hover:opacity-100'
+                  }`}
+                >
+                  {turno.rotulo}
+                </button>
+              ))}
+              <span className="ml-auto text-[11px] text-muted-foreground">
+                Clique num dia para aplicar · arraste uma pessoa até a coluna · botão direito desfaz
+              </span>
+            </div>
+          )}
+
           {linhas.length === 0 ? (
             <EstadoVazio
               icone={UsersRound}
@@ -315,15 +443,30 @@ export default function EscalaEquipePage() {
                         const diaSemana = diaDaSemana(data);
                         const fimDeSemana = diaSemana === 0 || diaSemana === 6;
 
+                        const chave = `${linha.funcionario.id}|${data}`;
                         return (
                           <td
                             key={data}
                             className={`border-b p-0.5 text-center ${fimDeSemana ? 'bg-muted/30' : ''}`}
+                            onDragOver={(e) => {
+                              if (!arrastando || !podeGerenciar) return;
+                              e.preventDefault();
+                              setAlvo(chave);
+                            }}
+                            onDragLeave={() => setAlvo((a) => (a === chave ? null : a))}
+                            onDrop={() => soltarEm(linha.funcionario.id, data)}
                           >
-                            <div
+                            <button
+                              type="button"
+                              disabled={!podeGerenciar}
+                              onClick={() => ajustarDia(linha.funcionario.id, data, pincel)}
+                              onContextMenu={(e) => {
+                                e.preventDefault();
+                                void desfazerAjuste(linha.funcionario.id, data);
+                              }}
                               title={
                                 dia
-                                  ? `${turno.rotulo} · ${dia.horario}${
+                                  ? `${turno.rotulo} · ${dia.horario}${dia.ajustado ? ' · ajustado à mão' : ''}${
                                       dia.indisponivel
                                         ? dia.indisponivel === 'ferias'
                                           ? ' — de férias!'
@@ -332,12 +475,14 @@ export default function EscalaEquipePage() {
                                     }`
                                   : turno.rotulo
                               }
-                              className={`rounded border px-0.5 py-1 text-[9px] font-semibold ${classeDoTurno(turno)} ${
+                              className={`w-full rounded border px-0.5 py-1 text-[9px] font-semibold transition-all ${classeDoTurno(turno)} ${
                                 dia?.indisponivel ? 'opacity-45 line-through' : ''
-                              }`}
+                              } ${dia?.ajustado ? 'ring-1 ring-inset ring-foreground/40' : ''} ${
+                                alvo === chave ? 'ring-2 ring-ring' : ''
+                              } ${podeGerenciar ? 'hover:brightness-110' : ''}`}
                             >
                               {codigoCurto(turno)}
-                            </div>
+                            </button>
                           </td>
                         );
                       })}
@@ -412,8 +557,18 @@ export default function EscalaEquipePage() {
                     <button
                       key={linha.funcionario.id}
                       type="button"
+                      draggable={podeGerenciar}
+                      onDragStart={() => setArrastando({ tipo: 'pessoa', id: linha.funcionario.id })}
+                      onDragEnd={() => { setArrastando(null); setAlvo(null); }}
                       onClick={() => setPessoaAberta(linha.funcionario)}
-                      className="flex w-full items-center gap-2.5 rounded-lg border p-2 text-left transition-colors hover:bg-accent"
+                      title={
+                        podeGerenciar
+                          ? `Arraste até um dia do calendário para escalar ${linha.funcionario.nome}`
+                          : undefined
+                      }
+                      className={`flex w-full items-center gap-2.5 rounded-lg border p-2 text-left transition-colors hover:bg-accent ${
+                        podeGerenciar ? 'cursor-grab active:cursor-grabbing' : ''
+                      }`}
                     >
                       <Avatar nome={linha.funcionario.nome} tamanho="sm" />
                       <div className="min-w-0 flex-1">

@@ -43,6 +43,13 @@
       "when": 1789148660899,
       "tag": "0005_square_lethal_legion",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789149432894,
+      "tag": "0006_little_unus",
+      "breakpoints": true
     }
   ]
 }

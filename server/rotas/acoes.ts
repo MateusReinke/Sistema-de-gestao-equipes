@@ -6,7 +6,7 @@
  * desligar alguém sem revogar o acesso, deixaria o sistema em estado
  * inconsistente.
  */
-import { and, eq, gte, inArray, ne } from 'drizzle-orm';
+import { and, eq, gte, inArray, lte, ne } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../db/index';
 import * as t from '../db/schema';
@@ -234,6 +234,24 @@ export function rotasAcoes(app: FastifyInstance): void {
         ])
       : [[], []];
 
+    // Ajustes de dia solto vencem o padrão do ciclo — o mesmo que a tela da
+    // equipe mostra precisa ser o que é gravado.
+    const [excecoes, tiposTurno] = await Promise.all([
+      db
+        .select()
+        .from(t.escalaExcecoes)
+        .where(
+          and(
+            inArray(t.escalaExcecoes.funcionario_id, funcionarioIds),
+            gte(t.escalaExcecoes.data, de),
+            lte(t.escalaExcecoes.data, ate),
+          ),
+        ),
+      db.select().from(t.tiposTurno).where(eq(t.tiposTurno.equipe_id, equipe.id)),
+    ]);
+    const turnoPorId = new Map(tiposTurno.map((x) => [x.id, x]));
+    const excecaoPorDia = new Map(excecoes.map((x) => [`${x.funcionario_id}|${x.data}`, x]));
+
     const escalaPorId = new Map(escalas.map((e) => [e.id, e]));
     const detalhesPorEscala = new Map<string, typeof detalhes>();
     for (const d of detalhes) {
@@ -257,7 +275,7 @@ export function rotasAcoes(app: FastifyInstance): void {
           escala.ciclo_semanas,
           de,
           ate,
-        );
+        ).filter((c) => !excecaoPorDia.has(`${c.funcionario_id}|${c.data}`));
 
         for (const candidato of candidatos) {
           const [existente] = await tx
@@ -301,6 +319,57 @@ export function rotasAcoes(app: FastifyInstance): void {
             tipo: candidato.tipo,
             tipo_turno_id: candidato.tipo_turno_id ?? null,
             status: candidato.data < hoje() ? 'confirmado' : 'previsto',
+            gerado_automaticamente: true,
+          });
+          criados++;
+        }
+      }
+
+      /*
+       * O que as exceções pedem entra por último. Uma exceção sem turno é
+       * folga: o dia simplesmente não gera plantão, e um que a rodada
+       * anterior tenha criado ali é retirado.
+       */
+      for (const excecao of excecoes) {
+        await tx
+          .delete(t.plantoes)
+          .where(
+            and(
+              eq(t.plantoes.funcionario_id, excecao.funcionario_id),
+              eq(t.plantoes.data, excecao.data),
+              eq(t.plantoes.gerado_automaticamente, true),
+            ),
+          );
+
+        const turno = excecao.tipo_turno_id ? turnoPorId.get(excecao.tipo_turno_id) : undefined;
+        if (!turno) continue;
+
+        const janelas = [
+          turno.trabalha
+            ? { inicio: turno.hora_inicio, fim: turno.hora_fim, tipo: turno.tipo_plantao }
+            : null,
+          turno.acionamento !== 'nenhum'
+            ? {
+                inicio: turno.acionamento_inicio,
+                fim: turno.acionamento_fim,
+                tipo: turno.acionamento === 'plantao' ? ('sobreaviso' as const) : ('backup' as const),
+              }
+            : null,
+        ].filter((j): j is NonNullable<typeof j> => j !== null);
+
+        for (const janela of janelas) {
+          await tx.insert(t.plantoes).values({
+            id: novoId('p'),
+            funcionario_id: excecao.funcionario_id,
+            escala_id: null,
+            tipo_turno_id: turno.id,
+            data: excecao.data,
+            hora_inicio: janela.inicio,
+            hora_fim: janela.fim,
+            tipo: janela.tipo,
+            status: excecao.data < hoje() ? 'confirmado' : 'previsto',
+            // Nasceu de um ajuste manual, mas é a geração que o materializa:
+            // marcar como automático deixa a próxima rodada reconciliar.
             gerado_automaticamente: true,
           });
           criados++;

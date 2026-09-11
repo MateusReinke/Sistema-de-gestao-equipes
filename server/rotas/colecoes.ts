@@ -221,6 +221,14 @@ export const COLECOES: Colecao[] = [
     rotulo: (i) => `${i.hora_inicio}–${i.hora_fim}`,
   },
   {
+    nome: 'escalaExcecoes',
+    tabela: t.escalaExcecoes,
+    entidade: 'Ajuste de escala',
+    escrita: { tipo: 'rh' },
+    schema: de(t.escalaExcecoes),
+    rotulo: (i) => String(i.data),
+  },
+  {
     nome: 'escalaFuncionarios',
     tabela: t.escalaFuncionarios,
     entidade: 'Vínculo de escala',

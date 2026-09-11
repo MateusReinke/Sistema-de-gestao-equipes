@@ -529,6 +529,36 @@ export const escalaFuncionarios = pgTable('escala_funcionarios', {
   data_fim: date('data_fim').notNull(),
 });
 
+/**
+ * Um dia que foge do padrão do ciclo, para uma pessoa.
+ *
+ * O rodízio continua sendo a fonte do desenho; isto é o ajuste pontual em
+ * cima dele — trocar quem cobre um sábado, tirar alguém de um dia, encaixar
+ * um plantão extra. Guardar como exceção (e não reescrevendo a grade) é o que
+ * permite mexer num dia sem mudar todas as outras semanas do ciclo.
+ *
+ * `tipo_turno_id` nulo é o jeito de dizer **folga**: sem isso não haveria como
+ * distinguir "este dia virou folga" de "nunca houve exceção aqui".
+ */
+export const escalaExcecoes = pgTable(
+  'escala_excecoes',
+  {
+    id: varchar('id', { length: 40 }).primaryKey(),
+    funcionario_id: varchar('funcionario_id', { length: 40 })
+      .notNull()
+      .references(() => funcionarios.id, { onDelete: 'cascade' }),
+    data: date('data').notNull(),
+    tipo_turno_id: varchar('tipo_turno_id', { length: 40 }).references(() => tiposTurno.id, {
+      onDelete: 'cascade',
+    }),
+    observacao: text('observacao').notNull().default(''),
+  },
+  (t) => ({
+    // Um dia tem um estado só por pessoa: gravar dois seria ambíguo na tela.
+    diaUnico: uniqueIndex('escala_excecoes_dia_idx').on(t.funcionario_id, t.data),
+  }),
+);
+
 export const plantoes = pgTable(
   'plantoes',
   {

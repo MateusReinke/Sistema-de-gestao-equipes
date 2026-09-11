@@ -299,6 +299,21 @@ export interface TipoTurno {
   ativo: boolean;
 }
 
+/**
+ * Um dia que foge do padrão do ciclo, para uma pessoa — o ajuste pontual que
+ * a tela da equipe grava ao mexer numa célula do calendário.
+ *
+ * `tipo_turno_id` nulo quer dizer **folga**: é o que distingue "este dia virou
+ * folga" de "nunca houve exceção aqui".
+ */
+export interface EscalaExcecao {
+  id: string;
+  funcionario_id: string;
+  data: IsoDate;
+  tipo_turno_id?: string | null;
+  observacao: string;
+}
+
 export interface EscalaDetalhe {
   id: string;
   escala_id: string;

@@ -8,12 +8,13 @@ import type {
   Ausencia,
   Escala,
   EscalaDetalhe,
+  EscalaExcecao,
   EscalaFuncionario,
   Ferias,
   Funcionario,
 } from '@/types/sgo';
 import { gerarRevezamentoDiario } from './composicaoEscalas';
-import { FOLGA, TURNOS_PADRAO } from './turnos';
+import { TURNOS_PADRAO } from './turnos';
 import { coberturaPorDia, diasDoIntervalo, projetarEscalaEquipe } from './projecaoEscala';
 
 const EQUIPE = 'eq-noc';
@@ -69,6 +70,12 @@ function vinculo(id: string, funcionarioId: string, escalaId: string, ancora: st
 
 const ANCORA = '2026-01-05'; // segunda
 
+const porRotulo = (rotulo: string) => {
+  const t = TURNOS_PADRAO.find((x) => x.rotulo === rotulo);
+  if (!t) throw new Error(`turno "${rotulo}" não existe no padrão`);
+  return t;
+};
+
 /** O par 12×36 montado pelo compositor, pronto para virar linhas gravadas. */
 const par = gerarRevezamentoDiario({
   diaBase: ANCORA,
@@ -93,6 +100,7 @@ describe('projetarEscalaEquipe', () => {
     ],
     ferias: [] as Ferias[],
     ausencias: [] as Ausencia[],
+    escalaExcecoes: [] as EscalaExcecao[],
     legenda: TURNOS_PADRAO,
   };
 
@@ -194,6 +202,66 @@ describe('projetarEscalaEquipe', () => {
     expect(linhas[0].dias.size).toBe(0);
   });
 
+  it('ajuste de um dia vence o padrão do ciclo, sem mexer nos outros dias', () => {
+    // Ana trabalha em 05, 07, 09... Trocar o dia 07 para plantão não pode
+    // mexer no 09, que segue o rodízio.
+    const excecao: EscalaExcecao = {
+      id: 'ex1',
+      funcionario_id: 'f1',
+      data: '2026-01-07',
+      tipo_turno_id: porRotulo('Plantão').id,
+      observacao: '',
+    };
+    const [ana] = projetarEscalaEquipe(
+      { ...base, escalaExcecoes: [excecao] },
+      EQUIPE,
+      '2026-01-05',
+      '2026-01-11',
+    );
+
+    expect(ana.dias.get('2026-01-07')).toMatchObject({
+      turno: { rotulo: 'Plantão' },
+      ajustado: true,
+    });
+    expect(ana.dias.get('2026-01-09')?.turno.rotulo).toBe('Trabalho');
+    expect(ana.dias.get('2026-01-09')?.ajustado).toBeUndefined();
+  });
+
+  it('ajuste sem turno é folga — apaga o dia que o ciclo previa', () => {
+    const excecao: EscalaExcecao = {
+      id: 'ex2',
+      funcionario_id: 'f1',
+      data: '2026-01-07',
+      tipo_turno_id: null,
+      observacao: '',
+    };
+    const [ana] = projetarEscalaEquipe(
+      { ...base, escalaExcecoes: [excecao] },
+      EQUIPE,
+      '2026-01-05',
+      '2026-01-11',
+    );
+    expect(ana.dias.has('2026-01-07')).toBe(false);
+    expect(ana.dias.has('2026-01-05')).toBe(true);
+  });
+
+  it('ajuste fora do período pedido é ignorado', () => {
+    const excecao: EscalaExcecao = {
+      id: 'ex3',
+      funcionario_id: 'f1',
+      data: '2026-03-01',
+      tipo_turno_id: porRotulo('Plantão').id,
+      observacao: '',
+    };
+    const [ana] = projetarEscalaEquipe(
+      { ...base, escalaExcecoes: [excecao] },
+      EQUIPE,
+      '2026-01-05',
+      '2026-01-11',
+    );
+    expect(ana.dias.has('2026-03-01')).toBe(false);
+  });
+
   it('escala inativa não projeta nada', () => {
     const linhas = projetarEscalaEquipe(
       { ...base, escalas: [escala('esc-n1', { ativo: false }), escala('esc-n2')] },
@@ -205,8 +273,6 @@ describe('projetarEscalaEquipe', () => {
     expect(linhas[1].dias.size).toBeGreaterThan(0);
   });
 });
-
-const porRotulo = (rotulo: string) => TURNOS_PADRAO.find((t) => t.rotulo === rotulo) ?? FOLGA;
 
 describe('coberturaPorDia', () => {
   const dias = diasDoIntervalo('2026-01-05', '2026-01-06');

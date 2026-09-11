@@ -20,6 +20,7 @@ import type {
   Equipe,
   Escala,
   EscalaDetalhe,
+  EscalaExcecao,
   EscalaFuncionario,
   EventoAuditoria,
   Ferias,
@@ -57,6 +58,7 @@ export interface BaseDados {
   tiposTurno: TipoTurno[];
   escalaDetalhes: EscalaDetalhe[];
   escalaFuncionarios: EscalaFuncionario[];
+  escalaExcecoes: EscalaExcecao[];
   plantoes: Plantao[];
   ferias: Ferias[];
   ausencias: Ausencia[];
@@ -84,6 +86,7 @@ const BASE_VAZIA: BaseDados = {
   tiposTurno: [],
   escalaDetalhes: [],
   escalaFuncionarios: [],
+  escalaExcecoes: [],
   plantoes: [],
   ferias: [],
   ausencias: [],
@@ -130,6 +133,9 @@ interface ContextoDados extends BaseDados {
   salvarEscalaDetalhe: (d: EscalaDetalhe) => Promise<void>;
   removerEscalaDetalhe: (id: string) => Promise<void>;
   salvarEscalaFuncionario: (v: EscalaFuncionario) => Promise<void>;
+  /** Ajuste de um dia solto, por cima do padrão do ciclo. */
+  salvarEscalaExcecao: (e: EscalaExcecao) => Promise<void>;
+  removerEscalaExcecao: (id: string) => Promise<void>;
   removerEscalaFuncionario: (id: string) => Promise<void>;
   salvarSistema: (s: Sistema) => Promise<void>;
   salvarComunicado: (c: Comunicado) => Promise<void>;
@@ -312,6 +318,8 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
       salvarEscalaDetalhe: salvarEm('escalaDetalhes'),
       removerEscalaDetalhe: removerDe('escalaDetalhes'),
       salvarEscalaFuncionario: salvarEm('escalaFuncionarios'),
+      salvarEscalaExcecao: salvarEm('escalaExcecoes'),
+      removerEscalaExcecao: removerDe('escalaExcecoes'),
       removerEscalaFuncionario: removerDe('escalaFuncionarios'),
       salvarSistema: salvarEm('sistemas'),
       salvarComunicado: salvarEm('comunicados'),

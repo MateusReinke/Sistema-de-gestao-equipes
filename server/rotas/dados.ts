@@ -59,6 +59,7 @@ export function rotasDados(app: FastifyInstance): void {
       tiposTurno,
       escalaDetalhes,
       escalaFuncionarios,
+      escalaExcecoes,
       plantoes,
       ferias,
       ausencias,
@@ -76,6 +77,7 @@ export function rotasDados(app: FastifyInstance): void {
       db.select().from(t.tiposTurno),
       db.select().from(t.escalaDetalhes),
       db.select().from(t.escalaFuncionarios),
+      db.select().from(t.escalaExcecoes),
       db
         .select()
         .from(t.plantoes)
@@ -139,6 +141,7 @@ export function rotasDados(app: FastifyInstance): void {
       tiposTurno,
       escalaDetalhes,
       escalaFuncionarios,
+      escalaExcecoes,
       plantoes,
       ferias,
       ausencias,

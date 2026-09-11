@@ -17,6 +17,7 @@ import type {
   Ausencia,
   Escala,
   EscalaDetalhe,
+  EscalaExcecao,
   EscalaFuncionario,
   Ferias,
   Funcionario,
@@ -31,6 +32,8 @@ export interface DiaProjetado {
   turno: TurnoLegenda;
   /** Horário do que a pessoa faz nesse dia, já formatado (ex.: "09:00–18:00"). */
   horario: string;
+  /** Dia ajustado à mão, fora do padrão do ciclo. */
+  ajustado?: boolean;
   /**
    * Escalada, mas de férias ou afastada — a escala continua dizendo que é o
    * dia dela, e é exatamente isso que precisa saltar aos olhos.
@@ -52,6 +55,8 @@ interface Contexto {
   escalaFuncionarios: EscalaFuncionario[];
   ferias: Ferias[];
   ausencias: Ausencia[];
+  /** Ajustes de dia solto, que vencem o padrão do ciclo. */
+  escalaExcecoes: EscalaExcecao[];
   /** Legenda em uso pela equipe — ver `legendaDaEquipe`. */
   legenda: TurnoLegenda[];
 }
@@ -161,6 +166,38 @@ export function projetarEscalaEquipe(
         turno,
         horario: `${principal.hora_inicio}–${principal.hora_fim}`,
         indisponivel: indisponibilidade(funcionario.id, data, contexto.ferias, contexto.ausencias),
+      });
+    }
+
+    /*
+     * Ajustes de dia solto vêm por último e vencem o padrão: é assim que se
+     * troca quem cobre um sábado sem mexer nas outras semanas do ciclo. Uma
+     * exceção sem turno é folga — inclusive apagando o dia que o ciclo previa.
+     */
+    for (const excecao of contexto.escalaExcecoes) {
+      if (excecao.funcionario_id !== funcionario.id) continue;
+      if (excecao.data < de || excecao.data > ate) continue;
+
+      const turno = excecao.tipo_turno_id
+        ? contexto.legenda.find((t) => t.id === excecao.tipo_turno_id)
+        : undefined;
+
+      if (!turno) {
+        dias.delete(excecao.data);
+        continue;
+      }
+      dias.set(excecao.data, {
+        turno,
+        horario: turno.trabalha
+          ? `${turno.hora_inicio}–${turno.hora_fim}`
+          : `${turno.acionamento_inicio}–${turno.acionamento_fim}`,
+        ajustado: true,
+        indisponivel: indisponibilidade(
+          funcionario.id,
+          excecao.data,
+          contexto.ferias,
+          contexto.ausencias,
+        ),
       });
     }
 
