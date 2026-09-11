@@ -261,9 +261,52 @@ export interface Escala {
   ativo: boolean;
 }
 
+/** Se um turno põe a pessoa na fila de acionamento, e em que posição. */
+export type Acionamento = 'nenhum' | 'plantao' | 'backup';
+
+export type CorTurno =
+  | 'verde'
+  | 'laranja'
+  | 'azul'
+  | 'vermelho'
+  | 'roxo'
+  | 'coral'
+  | 'amarelo'
+  | 'cinza';
+
+/**
+ * Item da legenda de turnos de uma equipe — o código que a grade pinta e o
+ * calendário mostra. Ver `src/lib/turnos.ts` para como é lido e gravado.
+ */
+export interface TipoTurno {
+  id: string;
+  /** Ausente nos itens embutidos, que servem a quem ainda não montou a sua. */
+  equipe_id?: string | null;
+  codigo: string;
+  rotulo: string;
+  cor: CorTurno;
+  trabalha: boolean;
+  acionamento: Acionamento;
+  /** Turno de trabalho, quando `trabalha`. */
+  hora_inicio: HoraMinuto;
+  hora_fim: HoraMinuto;
+  /** Janela de acionamento, quando `acionamento` não é `nenhum`. */
+  acionamento_inicio: HoraMinuto;
+  acionamento_fim: HoraMinuto;
+  /** Tipo gravado no plantão gerado — mantém relatórios e painéis de pé. */
+  tipo_plantao: TipoPlantao;
+  ordem: number;
+  ativo: boolean;
+}
+
 export interface EscalaDetalhe {
   id: string;
   escala_id: string;
+  /**
+   * Item da legenda da equipe de onde esta linha saiu. Nulo nas escalas
+   * montadas antes de a legenda existir — aí o turno é deduzido pelo `tipo`.
+   */
+  tipo_turno_id?: string | null;
   /** 1-based: em qual semana do ciclo da escala este turno vale. */
   semana_do_ciclo: number;
   /** 0 = domingo … 6 = sábado. */
@@ -308,6 +351,8 @@ export type StatusPlantao = 'previsto' | 'confirmado' | 'trocado' | 'ausente';
 
 export interface Plantao {
   id: string;
+  /** Item da legenda que originou o plantão, quando veio de uma grade. */
+  tipo_turno_id?: string | null;
   funcionario_id: string;
   escala_id?: string | null;
   data: IsoDate;

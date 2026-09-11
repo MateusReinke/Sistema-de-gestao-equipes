@@ -72,6 +72,8 @@ export const tipoEscala = pgEnum('tipo_escala', ['12x36', '5x2', '6x1', 'persona
  * `trabalho` mais uma `plantao`, em vez de um código híbrido só para isso.
  */
 export const papelEscala = pgEnum('papel_escala', ['trabalho', 'plantao', 'backup']);
+/** Se um turno põe a pessoa na fila de acionamento, e em que posição. */
+export const acionamentoTurno = pgEnum('acionamento_turno', ['nenhum', 'plantao', 'backup']);
 /**
  * `sobreaviso` é a primeira linha de acionamento; `backup` é a segunda, que só
  * entra se a primeira não atender. Separar os dois é o que permite dizer, num
@@ -428,6 +430,44 @@ export const escalas = pgTable('escalas', {
   ativo: boolean('ativo').notNull().default(true),
 });
 
+/**
+ * Legenda de turnos de uma equipe — os códigos que aparecem na grade e no
+ * calendário (T.1 Trabalho, T.2 Noturno, T.3 Plantão…).
+ *
+ * É por equipe porque cada operação lê a própria escala de um jeito: no NOC,
+ * "T.2" quer dizer turno noturno; na infra, plantão. Enquanto uma equipe não
+ * mexe na legenda dela, a tela usa o conjunto embutido em
+ * `src/lib/estadosDia.ts` — só quem edita materializa as linhas aqui.
+ */
+export const tiposTurno = pgTable('tipos_turno', {
+  id: varchar('id', { length: 40 }).primaryKey(),
+  equipe_id: varchar('equipe_id', { length: 40 })
+    .notNull()
+    .references(() => equipes.id, { onDelete: 'cascade' }),
+  /** Código curto mostrado na célula — "T.1", "N", "P". */
+  codigo: text('codigo').notNull(),
+  rotulo: text('rotulo').notNull(),
+  /** Nome da cor na paleta da aplicação, não um hex solto. */
+  cor: text('cor').notNull().default('laranja'),
+
+  /* O que este turno significa, nas duas perguntas que a geração usa. */
+  trabalha: boolean('trabalha').notNull().default(true),
+  acionamento: acionamentoTurno('acionamento').notNull().default('nenhum'),
+
+  /** Turno de trabalho, quando `trabalha`. */
+  hora_inicio: horaMinuto('hora_inicio').notNull().default('08:00'),
+  hora_fim: horaMinuto('hora_fim').notNull().default('17:00'),
+  /** Janela de acionamento, quando `acionamento` não é `nenhum`. */
+  acionamento_inicio: horaMinuto('acionamento_inicio').notNull().default('00:00'),
+  acionamento_fim: horaMinuto('acionamento_fim').notNull().default('23:59'),
+
+  /** Tipo gravado no plantão gerado — mantém relatórios e painéis de pé. */
+  tipo_plantao: tipoPlantao('tipo_plantao').notNull().default('comercial'),
+
+  ordem: smallint('ordem').notNull().default(0),
+  ativo: boolean('ativo').notNull().default(true),
+});
+
 export const escalaDetalhes = pgTable(
   'escala_detalhes',
   {
@@ -435,6 +475,13 @@ export const escalaDetalhes = pgTable(
     escala_id: varchar('escala_id', { length: 40 })
       .notNull()
       .references(() => escalas.id, { onDelete: 'cascade' }),
+    /**
+     * De qual item da legenda esta linha nasceu. Nulo nas escalas montadas
+     * antes de a legenda existir — aí a tela deduz o estado pelo `tipo`.
+     */
+    tipo_turno_id: varchar('tipo_turno_id', { length: 40 }).references(() => tiposTurno.id, {
+      onDelete: 'set null',
+    }),
     /** 1-based: em qual semana do ciclo da escala este turno vale. */
     semana_do_ciclo: smallint('semana_do_ciclo').notNull().default(1),
     dia_semana: smallint('dia_semana').notNull(),
@@ -486,6 +533,10 @@ export const plantoes = pgTable(
   'plantoes',
   {
     id: varchar('id', { length: 40 }).primaryKey(),
+    /** Item da legenda que originou este plantão, quando veio de uma grade. */
+    tipo_turno_id: varchar('tipo_turno_id', { length: 40 }).references(() => tiposTurno.id, {
+      onDelete: 'set null',
+    }),
     funcionario_id: varchar('funcionario_id', { length: 40 })
       .notNull()
       .references(() => funcionarios.id, { onDelete: 'cascade' }),

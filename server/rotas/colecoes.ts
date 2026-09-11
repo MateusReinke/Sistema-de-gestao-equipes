@@ -205,6 +205,14 @@ export const COLECOES: Colecao[] = [
     rotulo: nomeDe,
   },
   {
+    nome: 'tiposTurno',
+    tabela: t.tiposTurno,
+    entidade: 'Turno da legenda',
+    escrita: { tipo: 'rh' },
+    schema: de(t.tiposTurno),
+    rotulo: (i) => `${i.codigo} ${i.rotulo}`,
+  },
+  {
     nome: 'escalaDetalhes',
     tabela: t.escalaDetalhes,
     entidade: 'Turno de escala',

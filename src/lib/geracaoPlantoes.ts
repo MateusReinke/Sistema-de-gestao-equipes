@@ -49,7 +49,7 @@ import { diaDaSemana, diferencaSemanas, somarDias } from '@/lib/date';
 
 export type PlantaoGerado = Pick<
   Plantao,
-  'funcionario_id' | 'escala_id' | 'data' | 'hora_inicio' | 'hora_fim' | 'tipo'
+  'funcionario_id' | 'escala_id' | 'data' | 'hora_inicio' | 'hora_fim' | 'tipo' | 'tipo_turno_id'
 >;
 
 /** Resto sempre não-negativo — `diferencaDias` é negativa quando a âncora vem depois de `data`. */
@@ -102,6 +102,9 @@ export function plantoesGerados(
         hora_inicio: detalhe.hora_inicio,
         hora_fim: detalhe.hora_fim,
         tipo: detalhe.tipo,
+        // Segue junto para o calendário poder pintar o dia com a cor e o
+        // código que a equipe definiu na legenda dela.
+        tipo_turno_id: detalhe.tipo_turno_id ?? null,
       });
     }
   }

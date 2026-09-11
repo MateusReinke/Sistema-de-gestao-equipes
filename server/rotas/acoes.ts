@@ -282,6 +282,7 @@ export function rotasAcoes(app: FastifyInstance): void {
               .set({
                 hora_fim: candidato.hora_fim,
                 tipo: candidato.tipo,
+                tipo_turno_id: candidato.tipo_turno_id ?? null,
                 escala_id: candidato.escala_id,
                 gerado_automaticamente: true,
               })
@@ -298,6 +299,7 @@ export function rotasAcoes(app: FastifyInstance): void {
             hora_inicio: candidato.hora_inicio,
             hora_fim: candidato.hora_fim,
             tipo: candidato.tipo,
+            tipo_turno_id: candidato.tipo_turno_id ?? null,
             status: candidato.data < hoje() ? 'confirmado' : 'previsto',
             gerado_automaticamente: true,
           });
@@ -328,19 +330,13 @@ export function rotasAcoes(app: FastifyInstance): void {
   app.put<{
     Params: { id: string };
     Body: {
-      horarios?: {
-        turno_tipo?: string;
-        turno_inicio?: string;
-        turno_fim?: string;
-        sobreaviso_inicio?: string;
-        sobreaviso_fim?: string;
-      };
       turnos?: {
         semana_do_ciclo: number;
         dia_semana: number;
         hora_inicio: string;
         hora_fim: string;
         tipo: string;
+        tipo_turno_id?: string | null;
       }[];
     };
   }>('/api/escalas/:id/grade', async (req, reply) => {
@@ -351,7 +347,6 @@ export function rotasAcoes(app: FastifyInstance): void {
     if (!escala) return reply.code(404).send({ erro: 'Escala não encontrada.' });
 
     const turnos = req.body?.turnos ?? [];
-    const horarios = req.body?.horarios;
 
     // A grade cobre só o ciclo declarado: aceitar uma semana 4 numa escala de
     // 3 semanas gravaria turno que nunca seria gerado.
@@ -369,19 +364,6 @@ export function rotasAcoes(app: FastifyInstance): void {
     }
 
     await db.transaction(async (tx) => {
-      if (horarios) {
-        await tx
-          .update(t.escalas)
-          .set({
-            turno_tipo: (horarios.turno_tipo ?? escala.turno_tipo) as typeof escala.turno_tipo,
-            turno_inicio: horarios.turno_inicio ?? escala.turno_inicio,
-            turno_fim: horarios.turno_fim ?? escala.turno_fim,
-            sobreaviso_inicio: horarios.sobreaviso_inicio ?? escala.sobreaviso_inicio,
-            sobreaviso_fim: horarios.sobreaviso_fim ?? escala.sobreaviso_fim,
-          })
-          .where(eq(t.escalas.id, escala.id));
-      }
-
       await tx.delete(t.escalaDetalhes).where(eq(t.escalaDetalhes.escala_id, escala.id));
 
       if (turnos.length > 0) {
@@ -394,6 +376,7 @@ export function rotasAcoes(app: FastifyInstance): void {
             hora_inicio: turno.hora_inicio,
             hora_fim: turno.hora_fim,
             tipo: turno.tipo as typeof escala.turno_tipo,
+            tipo_turno_id: turno.tipo_turno_id ?? null,
           })),
         );
       }

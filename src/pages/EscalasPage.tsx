@@ -26,6 +26,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Avatar, Aviso, BadgeStatus, CabecalhoPagina, EstadoVazio } from '@/components/comum';
 import { useDados, novoId } from '@/data/store';
 import { useAuth } from '@/contexts/AuthContext';
@@ -33,14 +43,16 @@ import { DIAS_SEMANA, diaDaSemana, duracaoTurnoHoras, formatarData, hoje, somarD
 import { PAPEL_ESCALA, TIPO_ESCALA, TIPO_PLANTAO } from '@/lib/labels';
 import { gerarRevezamentoDiario, gerarRodizioComBackup } from '@/lib/composicaoEscalas';
 import {
-  ESTADO_DIA,
-  ESTADOS_DIA,
-  detalhesDoEstado,
+  FOLGA,
+  FOLGA_ID,
+  classeDoTurno,
+  codigoCurto,
+  descricaoDoTurno,
+  detalhesDoTurno,
   gradeDeDetalhes,
-  horariosDeDetalhes,
-  type EstadoDia,
-  type HorariosEscala,
-} from '@/lib/estadosDia';
+  legendaDaEquipe,
+  type TurnoLegenda,
+} from '@/lib/turnos';
 import type {
   Equipe,
   Escala,
@@ -53,78 +65,69 @@ import type {
 } from '@/types/sgo';
 
 /**
- * Grade do ciclo — semana × dia da semana — pintada com o estado de cada dia.
+ * Grade do ciclo — semana × dia da semana — pintada com a legenda da equipe.
  *
  * Substitui o formulário de "adicionar turno" (semana, dia, tipo, início, fim,
  * um de cada vez): monta-se um ciclo de 3 semanas clicando 21 vezes, e não
- * preenchendo 21 formulários. O horário fica no cabeçalho, definido uma vez
- * para a escala inteira — é o mesmo arranjo da planilha, onde a célula guarda
- * só o código do dia e a hora vem do contrato da pessoa.
+ * preenchendo 21 formulários. O horário não aparece aqui porque vive no item
+ * da legenda ("T.2 Noturno 19:00–07:00") — a célula guarda só qual turno é,
+ * como na planilha, onde o código está na célula e a hora no cadastro.
  */
 function GradeCiclo({
   escala,
   detalhes,
+  legenda,
   salvarGrade,
 }: {
   escala: Escala;
   detalhes: EscalaDetalhe[];
-  salvarGrade: (
-    horarios: HorariosEscala,
-    turnos: Omit<EscalaDetalhe, 'id' | 'escala_id'>[],
-  ) => Promise<void>;
+  legenda: TurnoLegenda[];
+  salvarGrade: (turnos: Omit<EscalaDetalhe, 'id' | 'escala_id'>[]) => Promise<void>;
 }) {
-  const [horarios, setHorarios] = useState<HorariosEscala>(() =>
-    // Escala criada antes de o horário viver na escala continua abrindo com o
-    // que estiver gravado nos próprios turnos.
-    horariosDeDetalhes(detalhes, {
-      turno_tipo: escala.turno_tipo,
-      turno_inicio: escala.turno_inicio,
-      turno_fim: escala.turno_fim,
-      sobreaviso_inicio: escala.sobreaviso_inicio,
-      sobreaviso_fim: escala.sobreaviso_fim,
-    }),
+  const paleta = [FOLGA, ...legenda];
+  const [grade, setGrade] = useState<TurnoLegenda[][]>(() =>
+    gradeDeDetalhes(detalhes, escala.ciclo_semanas, legenda),
   );
-  const [grade, setGrade] = useState<EstadoDia[][]>(() =>
-    gradeDeDetalhes(detalhes, escala.ciclo_semanas),
-  );
-  const [pincel, setPincel] = useState<EstadoDia>('trabalho');
+  const [pincelId, setPincelId] = useState<string>(legenda[0]?.id ?? FOLGA_ID);
   const [salvando, setSalvando] = useState(false);
+
+  const pincel = paleta.find((t) => t.id === pincelId) ?? FOLGA;
 
   // O número de semanas é editado no formulário acima, então a grade se ajusta
   // no próprio render — sem efeito colateral que apagaria o que já foi pintado.
-  const semanas: EstadoDia[][] = Array.from(
-    { length: escala.ciclo_semanas },
-    (_, i) => grade[i] ?? Array.from({ length: 7 }, () => 'folga' as EstadoDia),
+  const semanas: TurnoLegenda[][] = Array.from({ length: escala.ciclo_semanas }, (_, i) =>
+    grade[i] ?? Array.from({ length: 7 }, () => FOLGA),
   );
 
   const pintar = (semana: number, dia: number) =>
-    setGrade(semanas.map((linha, i) => (i === semana ? linha.map((e, d) => (d === dia ? pincel : e)) : linha)));
+    setGrade(
+      semanas.map((linha, i) =>
+        i === semana ? linha.map((t, d) => (d === dia ? pincel : t)) : linha,
+      ),
+    );
 
   const pintarSemana = (semana: number) =>
     setGrade(semanas.map((linha, i) => (i === semana ? linha.map(() => pincel) : linha)));
 
   const pintarDia = (dia: number) =>
-    setGrade(semanas.map((linha) => linha.map((e, d) => (d === dia ? pincel : e))));
+    setGrade(semanas.map((linha) => linha.map((t, d) => (d === dia ? pincel : t))));
 
   const aplicarPreset = (preset: 'comercial' | 'limpar') =>
     setGrade(
       semanas.map(() =>
         Array.from({ length: 7 }, (_, d) =>
-          preset === 'comercial' && d >= 1 && d <= 5 ? 'trabalho' : 'folga',
+          preset === 'comercial' && d >= 1 && d <= 5 ? pincel : FOLGA,
         ),
       ),
     );
 
   const salvar = async () => {
-    if (horarios.turno_inicio === horarios.turno_fim) {
-      return toast.error('Início e fim do turno não podem ser iguais.');
-    }
     setSalvando(true);
     try {
       const turnos = semanas.flatMap((linha, i) =>
-        linha.flatMap((estado, dia) => detalhesDoEstado(estado, i + 1, dia, horarios)),
+        linha.flatMap((turno, dia) => detalhesDoTurno(turno, i + 1, dia)),
       );
-      await salvarGrade(horarios, turnos);
+      await salvarGrade(turnos);
       toast.success('Grade salva.');
     } catch {
       // A mensagem de erro já apareceu via toast em useDados().
@@ -133,100 +136,34 @@ function GradeCiclo({
     }
   };
 
-  const usaAcionamento = semanas.some((l) => l.some((e) => ESTADO_DIA[e].acionamento !== 'nenhum'));
-  const totalTrabalho = semanas.flat().filter((e) => ESTADO_DIA[e].trabalha).length;
+  const diasTrabalhados = semanas.flat().filter((t) => t.trabalha);
   const horasSemana =
-    (totalTrabalho * duracaoTurnoHoras(horarios.turno_inicio, horarios.turno_fim)) /
+    diasTrabalhados.reduce((soma, t) => soma + duracaoTurnoHoras(t.hora_inicio, t.hora_fim), 0) /
     escala.ciclo_semanas;
 
   return (
     <div className="space-y-3">
-      {/* Horário: uma vez para a escala toda, não por célula. */}
-      <div className="space-y-2 rounded-lg border p-3">
-        <div className="grid grid-cols-3 gap-2">
-          <div className="space-y-1">
-            <Label className="text-xs">Turno</Label>
-            <Select
-              value={horarios.turno_tipo}
-              onValueChange={(v) => setHorarios({ ...horarios, turno_tipo: v as TipoPlantao })}
-            >
-              <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {(['comercial', 'diurno', 'noturno', 'especial'] as TipoPlantao[]).map((t) => (
-                  <SelectItem key={t} value={t}>{TIPO_PLANTAO[t]}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Entra</Label>
-            <Input
-              className="h-8"
-              type="time"
-              value={horarios.turno_inicio}
-              onChange={(e) => setHorarios({ ...horarios, turno_inicio: e.target.value })}
-            />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Sai</Label>
-            <Input
-              className="h-8"
-              type="time"
-              value={horarios.turno_fim}
-              onChange={(e) => setHorarios({ ...horarios, turno_fim: e.target.value })}
-            />
-          </div>
-        </div>
-
-        {usaAcionamento && (
-          <div className="grid grid-cols-3 gap-2">
-            <div className="flex items-end pb-1.5">
-              <p className="text-[11px] text-muted-foreground">Pode ser acionado das</p>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Início</Label>
-              <Input
-                className="h-8"
-                type="time"
-                value={horarios.sobreaviso_inicio}
-                onChange={(e) => setHorarios({ ...horarios, sobreaviso_inicio: e.target.value })}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Fim</Label>
-              <Input
-                className="h-8"
-                type="time"
-                value={horarios.sobreaviso_fim}
-                onChange={(e) => setHorarios({ ...horarios, sobreaviso_fim: e.target.value })}
-              />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Paleta: escolhe o estado e clica nas células. */}
       <div className="space-y-1.5">
         <p className="text-[11px] text-muted-foreground">
-          Escolha o que a pessoa faz no dia e clique nas células da grade.
+          Escolha um turno da legenda e clique nas células. O cabeçalho do dia pinta a coluna
+          inteira; o número da semana, a linha.
         </p>
         <div className="flex flex-wrap gap-1">
-          {ESTADOS_DIA.map((estado) => {
-            const def = ESTADO_DIA[estado];
-            return (
-              <button
-                key={estado}
-                type="button"
-                onClick={() => setPincel(estado)}
-                title={def.descricao}
-                className={`rounded border px-2 py-1 text-[11px] font-medium transition-all ${def.classe} ${
-                  pincel === estado ? 'ring-2 ring-ring ring-offset-1 ring-offset-background' : 'opacity-75 hover:opacity-100'
-                }`}
-              >
-                {def.rotulo}
-              </button>
-            );
-          })}
+          {paleta.map((turno) => (
+            <button
+              key={turno.id}
+              type="button"
+              onClick={() => setPincelId(turno.id)}
+              title={descricaoDoTurno(turno)}
+              className={`rounded border px-2 py-1 text-[11px] font-medium transition-all ${classeDoTurno(turno)} ${
+                pincelId === turno.id
+                  ? 'ring-2 ring-ring ring-offset-1 ring-offset-background'
+                  : 'opacity-75 hover:opacity-100'
+              }`}
+            >
+              {turno.rotulo}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -240,7 +177,7 @@ function GradeCiclo({
                   <button
                     type="button"
                     onClick={() => pintarDia(i)}
-                    title={`Aplicar "${ESTADO_DIA[pincel].rotulo}" em toda coluna`}
+                    title={`Aplicar "${pincel.rotulo}" em toda coluna`}
                     className="w-full p-1.5 hover:bg-accent"
                   >
                     {d}
@@ -256,27 +193,24 @@ function GradeCiclo({
                   <button
                     type="button"
                     onClick={() => pintarSemana(i)}
-                    title={`Aplicar "${ESTADO_DIA[pincel].rotulo}" na semana inteira`}
+                    title={`Aplicar "${pincel.rotulo}" na semana inteira`}
                     className="tabular w-full p-1.5 text-left text-muted-foreground hover:bg-accent"
                   >
                     {i + 1}
                   </button>
                 </td>
-                {linha.map((estado, dia) => {
-                  const def = ESTADO_DIA[estado];
-                  return (
-                    <td key={dia} className="p-0.5">
-                      <button
-                        type="button"
-                        onClick={() => pintar(i, dia)}
-                        title={`${def.rotulo} — ${def.descricao}`}
-                        className={`w-full rounded border px-1 py-1.5 text-[10px] font-medium transition-colors hover:brightness-110 ${def.classe}`}
-                      >
-                        {def.codigo}
-                      </button>
-                    </td>
-                  );
-                })}
+                {linha.map((turno, dia) => (
+                  <td key={dia} className="p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => pintar(i, dia)}
+                      title={`${turno.rotulo} — ${descricaoDoTurno(turno)}`}
+                      className={`w-full rounded border px-1 py-1.5 text-[10px] font-medium transition-colors hover:brightness-110 ${classeDoTurno(turno)}`}
+                    >
+                      {turno.codigo}
+                    </button>
+                  </td>
+                ))}
               </tr>
             ))}
           </tbody>
@@ -284,10 +218,22 @@ function GradeCiclo({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => aplicarPreset('comercial')}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={() => aplicarPreset('comercial')}
+        >
           Seg a sex
         </Button>
-        <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => aplicarPreset('limpar')}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={() => aplicarPreset('limpar')}
+        >
           Limpar
         </Button>
         <span className="tabular ml-auto text-[11px] text-muted-foreground">
@@ -997,11 +943,13 @@ function NovoRodizioComBackup({
 export default function EscalasPage() {
   const {
     escalas,
+    tiposTurno,
     escalaDetalhes,
     escalaFuncionarios,
     funcionarios,
     equipes,
     salvarEscala,
+    removerEscala,
     salvarEscalaDetalhe,
     salvarEscalaFuncionario,
     removerEscalaFuncionario,
@@ -1013,6 +961,7 @@ export default function EscalasPage() {
   const [emEdicao, setEmEdicao] = useState<Escala | null>(null);
   const [ehNova, setEhNova] = useState(false);
   const [assistente, setAssistente] = useState<'revezamento' | 'rodizio' | null>(null);
+  const [aExcluir, setAExcluir] = useState<Escala | null>(null);
 
   const hojeIso = hoje();
 
@@ -1155,6 +1104,17 @@ export default function EscalasPage() {
                       <Button
                         variant="ghost"
                         size="icon"
+                        className="h-7 w-7 text-destructive"
+                        title="Excluir escala"
+                        onClick={() => setAExcluir(esc)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    {podeGerenciar && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         className="h-7 w-7"
                         onClick={() => {
                           setEmEdicao({ ...esc });
@@ -1201,20 +1161,21 @@ export default function EscalasPage() {
                             </span>
                           ))}
                         </div>
-                        {gradeDeDetalhes(detalhes, esc.ciclo_semanas).map((linha, i) => (
+                        {gradeDeDetalhes(
+                          detalhes,
+                          esc.ciclo_semanas,
+                          legendaDaEquipe(tiposTurno, esc.equipe_id),
+                        ).map((linha, i) => (
                           <div key={i} className="grid grid-cols-7 gap-0.5">
-                            {linha.map((estado, dia) => {
-                              const def = ESTADO_DIA[estado];
-                              return (
-                                <span
-                                  key={dia}
-                                  title={`Semana ${i + 1} · ${DIAS_SEMANA[dia]} · ${def.rotulo}`}
-                                  className={`rounded border py-0.5 text-center text-[9px] font-semibold ${def.classe}`}
-                                >
-                                  {def.codigoCurto}
-                                </span>
-                              );
-                            })}
+                            {linha.map((turno, dia) => (
+                              <span
+                                key={dia}
+                                title={`Semana ${i + 1} · ${DIAS_SEMANA[dia]} · ${turno.rotulo}`}
+                                className={`rounded border py-0.5 text-center text-[9px] font-semibold ${classeDoTurno(turno)}`}
+                              >
+                                {codigoCurto(turno)}
+                              </span>
+                            ))}
                           </div>
                         ))}
                       </div>
@@ -1352,9 +1313,8 @@ export default function EscalasPage() {
                       key={emEdicao.id}
                       escala={emEdicao}
                       detalhes={escalaDetalhes.filter((d) => d.escala_id === emEdicao.id)}
-                      salvarGrade={(horarios, turnos) =>
-                        salvarGradeEscala(emEdicao.id, horarios, turnos)
-                      }
+                      legenda={legendaDaEquipe(tiposTurno, emEdicao.equipe_id)}
+                      salvarGrade={(turnos) => salvarGradeEscala(emEdicao.id, turnos)}
                     />
                   </div>
                   <div className="space-y-1.5 border-t pt-4">
@@ -1380,6 +1340,34 @@ export default function EscalasPage() {
           )}
         </SheetContent>
       </Sheet>
+
+      <AlertDialog open={aExcluir !== null} onOpenChange={(v) => !v && setAExcluir(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir a escala {aExcluir?.nome}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A grade do ciclo e os vínculos das pessoas somem junto. Os plantões que já foram
+              gerados ficam no calendário — apague-os por lá se também não quiser mais.
+              {aExcluir &&
+                escalaFuncionarios.filter((v) => v.escala_id === aExcluir.id).length > 0 &&
+                ` ${escalaFuncionarios.filter((v) => v.escala_id === aExcluir.id).length} pessoa(s) deixam de seguir esta escala.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                if (!aExcluir) return;
+                await removerEscala(aExcluir.id);
+                toast.success('Escala excluída.');
+                setAExcluir(null);
+              }}
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <NovoRevezamentoDiario
         aberto={assistente === 'revezamento'}

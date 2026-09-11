@@ -30,6 +30,7 @@ import type {
   ServicoContratado,
   Sistema,
   SolicitacaoAcesso,
+  TipoTurno,
   StatusSolicitacao,
   TipoPendencia,
   TrocaPlantao,
@@ -37,7 +38,6 @@ import type {
 } from '@/types/sgo';
 import { ErroApi, api } from '@/data/api';
 import { useAuth } from '@/contexts/AuthContext';
-import type { HorariosEscala } from '@/lib/estadosDia';
 
 export interface BaseDados {
   /** Intervalo de datas dos plantões carregados. */
@@ -54,6 +54,7 @@ export interface BaseDados {
   funcionarios: Funcionario[];
   usuarios: Usuario[];
   escalas: Escala[];
+  tiposTurno: TipoTurno[];
   escalaDetalhes: EscalaDetalhe[];
   escalaFuncionarios: EscalaFuncionario[];
   plantoes: Plantao[];
@@ -80,6 +81,7 @@ const BASE_VAZIA: BaseDados = {
   funcionarios: [],
   usuarios: [],
   escalas: [],
+  tiposTurno: [],
   escalaDetalhes: [],
   escalaFuncionarios: [],
   plantoes: [],
@@ -121,6 +123,10 @@ interface ContextoDados extends BaseDados {
   salvarEquipe: (e: Equipe) => Promise<void>;
   salvarDepartamento: (d: Departamento) => Promise<void>;
   salvarEscala: (e: Escala) => Promise<void>;
+  salvarTipoTurno: (t: TipoTurno) => Promise<void>;
+  removerTipoTurno: (id: string) => Promise<void>;
+  /** Turnos e vínculos caem junto (cascata); plantões já gerados ficam, órfãos. */
+  removerEscala: (id: string) => Promise<void>;
   salvarEscalaDetalhe: (d: EscalaDetalhe) => Promise<void>;
   removerEscalaDetalhe: (id: string) => Promise<void>;
   salvarEscalaFuncionario: (v: EscalaFuncionario) => Promise<void>;
@@ -156,7 +162,6 @@ interface ContextoDados extends BaseDados {
   /** Troca a grade do ciclo inteira de uma vez — ver `/api/escalas/:id/grade`. */
   salvarGradeEscala: (
     escalaId: string,
-    horarios: HorariosEscala,
     turnos: Omit<EscalaDetalhe, 'id' | 'escala_id'>[],
   ) => Promise<void>;
 
@@ -263,13 +268,9 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
   );
 
   const salvarGradeEscala = useCallback(
-    async (
-      escalaId: string,
-      horarios: HorariosEscala,
-      turnos: Omit<EscalaDetalhe, 'id' | 'escala_id'>[],
-    ) => {
+    async (escalaId: string, turnos: Omit<EscalaDetalhe, 'id' | 'escala_id'>[]) => {
       try {
-        await api.put(`/api/escalas/${escalaId}/grade`, { horarios, turnos });
+        await api.put(`/api/escalas/${escalaId}/grade`, { turnos });
         aoConcluir();
       } catch (erro) {
         aoFalhar(erro);
@@ -305,6 +306,9 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
       salvarEquipe: salvarEm('equipes'),
       salvarDepartamento: salvarEm('departamentos'),
       salvarEscala: salvarEm('escalas'),
+      salvarTipoTurno: salvarEm('tiposTurno'),
+      removerTipoTurno: removerDe('tiposTurno'),
+      removerEscala: removerDe('escalas'),
       salvarEscalaDetalhe: salvarEm('escalaDetalhes'),
       removerEscalaDetalhe: removerDe('escalaDetalhes'),
       salvarEscalaFuncionario: salvarEm('escalaFuncionarios'),

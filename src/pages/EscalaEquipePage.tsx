@@ -1,12 +1,14 @@
 /**
- * Calendário mensal de uma equipe — pessoas nas linhas, dias do mês nas
- * colunas, cada célula pintada com o que a pessoa faz naquele dia.
+ * A tela de uma equipe: a escala em cima, a equipe embaixo.
  *
- * É a tela que a planilha de escala fazia às custas de uma aba por equipe e
- * uma fórmula por célula. A diferença é que aqui nada precisa ser gerado
- * antes: a grade é a projeção do rodízio já cadastrado, calculada na hora
+ * É onde a operação de uma equipe cabe inteira — o calendário do mês, a
+ * legenda que aquela equipe usa, quem está nela e a situação de férias de cada
+ * pessoa. O calendário é a projeção do rodízio cadastrado, calculada na hora
  * (`@/lib/projecaoEscala`), então a escala do mês que vem pode ser conferida
- * antes de virar plantão no banco.
+ * antes de existir plantão nenhum no banco.
+ *
+ * A legenda é por equipe de propósito: no NOC, "T.2" quer dizer turno noturno;
+ * na infra, plantão. Enquanto a equipe não monta a dela, vale a embutida.
  */
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -14,23 +16,54 @@ import {
   AlertTriangle,
   ArrowLeft,
   CalendarDays,
+  CalendarPlus,
   ChevronLeft,
   ChevronRight,
   Download,
+  Mail,
+  Palette,
+  Phone,
+  Plus,
+  Trash2,
   UsersRound,
   Wand2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Avatar, Aviso, BadgeStatus, CabecalhoPagina, EstadoVazio, Indicador } from '@/components/comum';
-import { useDados } from '@/data/store';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Avatar,
+  Aviso,
+  BadgeStatus,
+  CabecalhoPagina,
+  Campo,
+  EstadoVazio,
+  Indicador,
+} from '@/components/comum';
+import { useDados, novoId } from '@/data/store';
 import { useAuth } from '@/contexts/AuthContext';
-import { DIAS_SEMANA, diaDaSemana, formatarMesAno, hoje, paraIso } from '@/lib/date';
+import { DIAS_SEMANA, diaDaSemana, formatarData, formatarMesAno, hoje, paraIso } from '@/lib/date';
 import { baixarCsv } from '@/lib/export';
-import { ESTADO_DIA, ESTADOS_DIA } from '@/lib/estadosDia';
+import { calcularSaldoFerias } from '@/lib/rh';
+import {
+  CORES_DISPONIVEIS,
+  CORES_TURNO,
+  FOLGA,
+  classeDoTurno,
+  codigoCurto,
+  descricaoDoTurno,
+  legendaDaEquipe,
+  legendaInicialDaEquipe,
+  type TurnoLegenda,
+} from '@/lib/turnos';
 import { coberturaPorDia, diasDoIntervalo, projetarEscalaEquipe } from '@/lib/projecaoEscala';
-import { TIPO_ESCALA } from '@/lib/labels';
+import { STATUS_FUNCIONARIO, CLASSE_STATUS_FUNCIONARIO, TIPO_ESCALA, TIPO_PLANTAO } from '@/lib/labels';
+import type { Acionamento, CorTurno, Funcionario, TipoPlantao, TipoTurno } from '@/types/sgo';
 
 export default function EscalaEquipePage() {
   const { id = '' } = useParams();
@@ -39,16 +72,21 @@ export default function EscalaEquipePage() {
     equipes,
     funcionarios,
     escalas,
+    tiposTurno,
     escalaDetalhes,
     escalaFuncionarios,
     ferias,
     ausencias,
     gerarPlantoesEquipe,
+    salvarTipoTurno,
+    removerTipoTurno,
   } = useDados();
   const { podeGerenciar } = useAuth();
 
   const [mesAtual, setMesAtual] = useState(() => new Date());
   const [gerando, setGerando] = useState(false);
+  const [legendaAberta, setLegendaAberta] = useState(false);
+  const [pessoaAberta, setPessoaAberta] = useState<Funcionario | null>(null);
 
   const ano = mesAtual.getFullYear();
   const mes = mesAtual.getMonth();
@@ -59,18 +97,20 @@ export default function EscalaEquipePage() {
   const dias = useMemo(() => diasDoIntervalo(primeiroDia, ultimoDia), [primeiroDia, ultimoDia]);
 
   const equipe = equipes.find((e) => e.id === id);
+  const legenda = useMemo(() => legendaDaEquipe(tiposTurno, id), [tiposTurno, id]);
+  const legendaPropria = tiposTurno.some((t) => t.equipe_id === id);
 
   const linhas = useMemo(
     () =>
       equipe
         ? projetarEscalaEquipe(
-            { funcionarios, escalas, escalaDetalhes, escalaFuncionarios, ferias, ausencias },
+            { funcionarios, escalas, escalaDetalhes, escalaFuncionarios, ferias, ausencias, legenda },
             equipe.id,
             primeiroDia,
             ultimoDia,
           )
         : [],
-    [equipe, funcionarios, escalas, escalaDetalhes, escalaFuncionarios, ferias, ausencias, primeiroDia, ultimoDia],
+    [equipe, funcionarios, escalas, escalaDetalhes, escalaFuncionarios, ferias, ausencias, legenda, primeiroDia, ultimoDia],
   );
 
   const cobertura = useMemo(() => coberturaPorDia(linhas, dias), [linhas, dias]);
@@ -80,6 +120,7 @@ export default function EscalaEquipePage() {
     0,
   );
   const semEscala = linhas.filter((l) => l.dias.size === 0);
+  const escalasDaEquipe = escalas.filter((e) => e.equipe_id === id);
 
   const gerar = async () => {
     if (!equipe) return;
@@ -107,10 +148,10 @@ export default function EscalaEquipePage() {
           cabecalho: `${Number(data.slice(8))} ${DIAS_SEMANA[diaDaSemana(data)]}`,
           valor: (l: (typeof linhas)[number]) => {
             const dia = l.dias.get(data);
-            if (!dia) return ESTADO_DIA.folga.rotulo;
+            if (!dia) return FOLGA.rotulo;
             return dia.indisponivel
-              ? `${ESTADO_DIA[dia.estado].rotulo} (${dia.indisponivel})`
-              : ESTADO_DIA[dia.estado].rotulo;
+              ? `${dia.turno.rotulo} (${dia.indisponivel})`
+              : dia.turno.rotulo;
           },
         })),
       ],
@@ -132,8 +173,8 @@ export default function EscalaEquipePage() {
   return (
     <div className="space-y-5">
       <CabecalhoPagina
-        titulo={`Escala · ${equipe.nome}`}
-        descricao="Projeção do rodízio cadastrado. Nada aqui precisa ser gerado antes para ser conferido."
+        titulo={equipe.nome}
+        descricao="Escala do mês, legenda da equipe e quem está nela."
         acoes={
           <>
             <Button variant="ghost" onClick={() => navegar('/equipes')}>
@@ -167,16 +208,21 @@ export default function EscalaEquipePage() {
           icone={CalendarDays}
           tom={conflitos > 0 ? 'warning' : 'success'}
         />
-        <Indicador rotulo="Sem escala" valor={semEscala.length} icone={UsersRound} tom={semEscala.length > 0 ? 'warning' : 'success'} />
+        <Indicador
+          rotulo="Sem escala"
+          valor={semEscala.length}
+          icone={UsersRound}
+          tom={semEscala.length > 0 ? 'warning' : 'success'}
+        />
       </div>
 
       {semEscala.length > 0 && (
         <Aviso>
-          Sem nenhuma escala vinculada: {semEscala.map((l) => l.funcionario.nome).join(', ')}. Vincule
-          em Escalas para essas pessoas aparecerem no calendário.
+          Sem nenhuma escala vinculada: {semEscala.map((l) => l.funcionario.nome).join(', ')}.
         </Aviso>
       )}
 
+      {/* ---------------------------------------------------------- escala */}
       <Card className="shadow-card">
         <CardHeader className="flex flex-col gap-3 pb-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-1">
@@ -193,6 +239,12 @@ export default function EscalaEquipePage() {
               Hoje
             </Button>
           </div>
+
+          {podeGerenciar && (
+            <Button variant="outline" size="sm" onClick={() => setLegendaAberta(true)}>
+              <Palette className="mr-2 h-3.5 w-3.5" /> Editar legenda
+            </Button>
+          )}
         </CardHeader>
 
         <CardContent>
@@ -238,7 +290,11 @@ export default function EscalaEquipePage() {
                   {linhas.map((linha) => (
                     <tr key={linha.funcionario.id}>
                       <td className="sticky left-0 z-10 border-b bg-card p-1.5">
-                        <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPessoaAberta(linha.funcionario)}
+                          className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-accent"
+                        >
                           <Avatar nome={linha.funcionario.nome} tamanho="sm" />
                           <div className="min-w-0">
                             <p className="truncate text-[12px] font-medium leading-tight">
@@ -250,13 +306,12 @@ export default function EscalaEquipePage() {
                                 ` · ${[...new Set(linha.escalas.map((e) => TIPO_ESCALA[e.tipo]))].join(', ')}`}
                             </p>
                           </div>
-                        </div>
+                        </button>
                       </td>
 
                       {dias.map((data) => {
                         const dia = linha.dias.get(data);
-                        const estado = dia?.estado ?? 'folga';
-                        const def = ESTADO_DIA[estado];
+                        const turno = dia?.turno ?? FOLGA;
                         const diaSemana = diaDaSemana(data);
                         const fimDeSemana = diaSemana === 0 || diaSemana === 6;
 
@@ -268,20 +323,20 @@ export default function EscalaEquipePage() {
                             <div
                               title={
                                 dia
-                                  ? `${def.rotulo} · ${dia.horario}${
+                                  ? `${turno.rotulo} · ${dia.horario}${
                                       dia.indisponivel
                                         ? dia.indisponivel === 'ferias'
                                           ? ' — de férias!'
                                           : ' — afastado!'
                                         : ''
                                     }`
-                                  : def.rotulo
+                                  : turno.rotulo
                               }
-                              className={`rounded border px-0.5 py-1 text-[9px] font-semibold ${def.classe} ${
+                              className={`rounded border px-0.5 py-1 text-[9px] font-semibold ${classeDoTurno(turno)} ${
                                 dia?.indisponivel ? 'opacity-45 line-through' : ''
                               }`}
                             >
-                              {def.codigoCurto}
+                              {codigoCurto(turno)}
                             </div>
                           </td>
                         );
@@ -301,9 +356,7 @@ export default function EscalaEquipePage() {
                         <td key={data} className="p-0.5 text-center">
                           <div
                             className={`tabular rounded py-1 text-[10px] font-semibold ${
-                              furo
-                                ? 'bg-destructive/20 text-destructive'
-                                : 'bg-muted text-muted-foreground'
+                              furo ? 'bg-destructive/20 text-destructive' : 'bg-muted text-muted-foreground'
                             }`}
                           >
                             {total}
@@ -317,18 +370,20 @@ export default function EscalaEquipePage() {
             </div>
           )}
 
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            {ESTADOS_DIA.map((estado) => {
-              const def = ESTADO_DIA[estado];
-              return (
-                <span key={estado} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                  <span className={`rounded border px-1 py-0.5 text-[9px] font-semibold ${def.classe}`}>
-                    {def.codigo}
-                  </span>
-                  {def.rotulo}
+          {/* Legenda centralizada sob o calendário. */}
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t pt-3">
+            {[FOLGA, ...legenda].map((turno) => (
+              <span
+                key={turno.id}
+                title={descricaoDoTurno(turno)}
+                className="flex items-center gap-1.5 text-[11px] text-muted-foreground"
+              >
+                <span className={`rounded border px-1 py-0.5 text-[9px] font-semibold ${classeDoTurno(turno)}`}>
+                  {codigoCurto(turno)}
                 </span>
-              );
-            })}
+                {turno.rotulo}
+              </span>
+            ))}
             <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <span className="rounded border bg-muted px-1 py-0.5 text-[9px] font-semibold line-through opacity-45">
                 T.1
@@ -339,47 +394,567 @@ export default function EscalaEquipePage() {
         </CardContent>
       </Card>
 
-      <Card className="shadow-card">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Escalas desta equipe</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {(() => {
-            const daEquipe = escalas.filter((e) => e.equipe_id === equipe.id);
-            if (daEquipe.length === 0) {
-              return (
-                <p className="text-sm text-muted-foreground">
-                  Nenhuma escala cadastrada para esta equipe ainda.
-                </p>
-              );
-            }
-            return (
-              <div className="flex flex-wrap gap-2">
-                {daEquipe.map((e) => (
-                  <button
-                    key={e.id}
-                    type="button"
-                    onClick={() => navegar('/escalas')}
-                    className="flex items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors hover:bg-accent"
+      {/* ----------------------------------------------------------- time */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="shadow-card">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Quem está na equipe</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {linhas.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Ninguém cadastrado nesta equipe.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {linhas.map((linha) => {
+                  const saldo = calcularSaldoFerias(linha.funcionario, ferias);
+                  const diasNoMes = [...linha.dias.values()].filter((d) => d.turno.trabalha).length;
+                  return (
+                    <button
+                      key={linha.funcionario.id}
+                      type="button"
+                      onClick={() => setPessoaAberta(linha.funcionario)}
+                      className="flex w-full items-center gap-2.5 rounded-lg border p-2 text-left transition-colors hover:bg-accent"
+                    >
+                      <Avatar nome={linha.funcionario.nome} tamanho="sm" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{linha.funcionario.nome}</p>
+                        <p className="truncate text-[11px] text-muted-foreground">
+                          {linha.funcionario.cargo} · {diasNoMes} dia(s) no mês
+                        </p>
+                      </div>
+                      {saldo.vencido ? (
+                        <BadgeStatus
+                          texto="Férias vencidas"
+                          classe="bg-destructive/15 text-destructive border-destructive/30"
+                          className="text-[10px]"
+                        />
+                      ) : saldo.vencendo ? (
+                        <BadgeStatus
+                          texto="Férias a vencer"
+                          classe="bg-warning/15 text-warning-strong border-warning/30"
+                          className="text-[10px]"
+                        />
+                      ) : (
+                        <span className="tabular shrink-0 text-[11px] text-muted-foreground">
+                          {saldo.saldo}d
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-card">
+          <CardHeader className="flex flex-row items-center justify-between pb-3">
+            <CardTitle className="text-base">Escalas desta equipe</CardTitle>
+            {podeGerenciar && (
+              <Button variant="outline" size="sm" onClick={() => navegar('/escalas')}>
+                <CalendarPlus className="mr-2 h-3.5 w-3.5" /> Nova escala
+              </Button>
+            )}
+          </CardHeader>
+          <CardContent>
+            {escalasDaEquipe.length === 0 ? (
+              <EstadoVazio
+                icone={CalendarDays}
+                titulo="Nenhuma escala ainda"
+                descricao="Crie uma escala para esta equipe e o calendário acima se preenche sozinho."
+                acao={
+                  podeGerenciar ? (
+                    <Button size="sm" onClick={() => navegar('/escalas')}>
+                      <Plus className="mr-2 h-3.5 w-3.5" /> Criar escala
+                    </Button>
+                  ) : undefined
+                }
+              />
+            ) : (
+              <div className="space-y-1.5">
+                {escalasDaEquipe.map((e) => {
+                  const vinculados = escalaFuncionarios.filter((v) => v.escala_id === e.id).length;
+                  return (
+                    <button
+                      key={e.id}
+                      type="button"
+                      onClick={() => navegar('/escalas')}
+                      className="flex w-full items-center gap-2 rounded-lg border p-2 text-left transition-colors hover:bg-accent"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{e.nome}</p>
+                        <p className="tabular truncate text-[11px] text-muted-foreground">
+                          ciclo de {e.ciclo_semanas} semana(s) · {vinculados} vinculado(s)
+                        </p>
+                      </div>
+                      <BadgeStatus
+                        texto={TIPO_ESCALA[e.tipo]}
+                        classe="bg-primary/10 text-primary border-primary/25"
+                        className="text-[10px]"
+                      />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <EditorLegenda
+        aberto={legendaAberta}
+        aoFechar={() => setLegendaAberta(false)}
+        equipeId={equipe.id}
+        equipeNome={equipe.nome}
+        legenda={legenda}
+        legendaPropria={legendaPropria}
+        salvar={salvarTipoTurno}
+        remover={removerTipoTurno}
+      />
+
+      <FichaPessoa
+        pessoa={pessoaAberta}
+        aoFechar={() => setPessoaAberta(null)}
+        linha={linhas.find((l) => l.funcionario.id === pessoaAberta?.id)}
+      />
+    </div>
+  );
+
+  /** Painel lateral com o que o gestor precisa saber de uma pessoa. */
+  function FichaPessoa({
+    pessoa,
+    aoFechar,
+    linha,
+  }: {
+    pessoa: Funcionario | null;
+    aoFechar: () => void;
+    linha?: (typeof linhas)[number];
+  }) {
+    if (!pessoa) return null;
+    const saldo = calcularSaldoFerias(pessoa, ferias);
+    const feriasDela = ferias
+      .filter((f) => f.funcionario_id === pessoa.id && f.status !== 'rejeitada')
+      .sort((a, b) => b.data_inicio.localeCompare(a.data_inicio));
+    const ausenciasDela = ausencias
+      .filter((a) => a.funcionario_id === pessoa.id && a.status === 'aprovada')
+      .sort((a, b) => b.data_inicio.localeCompare(a.data_inicio));
+    const porTurno = new Map<string, number>();
+    for (const d of linha?.dias.values() ?? []) {
+      porTurno.set(d.turno.id, (porTurno.get(d.turno.id) ?? 0) + 1);
+    }
+
+    return (
+      <Sheet open onOpenChange={(v) => !v && aoFechar()}>
+        <SheetContent className="w-full overflow-y-auto sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>{pessoa.nome}</SheetTitle>
+          </SheetHeader>
+
+          <div className="mt-6 space-y-5">
+            <div className="flex items-center gap-3">
+              <Avatar nome={pessoa.nome} tamanho="lg" />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">{pessoa.cargo}</p>
+                <BadgeStatus
+                  texto={STATUS_FUNCIONARIO[pessoa.status]}
+                  classe={CLASSE_STATUS_FUNCIONARIO[pessoa.status]}
+                  className="mt-1 text-[10px]"
+                />
+              </div>
+            </div>
+
+            {(saldo.vencido || saldo.vencendo) && (
+              <Aviso tom={saldo.vencido ? 'destructive' : 'warning'}>
+                {saldo.vencido
+                  ? `Férias vencidas: o limite para gozar era ${formatarData(saldo.limiteConcessivo)}. A partir daí a empresa paga em dobro.`
+                  : `Férias a vencer: precisa gozar até ${formatarData(saldo.limiteConcessivo)} (faltam ${saldo.diasAteVencer} dias).`}
+              </Aviso>
+            )}
+
+            <div className="grid grid-cols-3 gap-2 text-center">
+              {[
+                { rotulo: 'Saldo', valor: `${saldo.saldo}d` },
+                { rotulo: 'Usados', valor: `${saldo.usados}d` },
+                { rotulo: 'Agendados', valor: `${saldo.agendados}d` },
+              ].map((c) => (
+                <div key={c.rotulo} className="rounded-lg border py-2">
+                  <p className="tabular text-lg font-bold leading-none">{c.valor}</p>
+                  <p className="mt-1 text-[10px] text-muted-foreground">{c.rotulo}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Contato
+              </p>
+              <div className="space-y-1.5">
+                <a
+                  href={`mailto:${pessoa.email}`}
+                  className="flex items-center gap-2 rounded-lg border p-2 text-sm hover:bg-accent"
+                >
+                  <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="truncate">{pessoa.email}</span>
+                </a>
+                {pessoa.telefone && (
+                  <a
+                    href={`tel:${pessoa.telefone.replace(/\D/g, '')}`}
+                    className="flex items-center gap-2 rounded-lg border p-2 text-sm hover:bg-accent"
                   >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{e.nome}</p>
-                      <p className="tabular truncate text-[11px] text-muted-foreground">
-                        {e.turno_inicio}–{e.turno_fim} · ciclo de {e.ciclo_semanas} semana(s)
-                      </p>
-                    </div>
-                    <BadgeStatus
-                      texto={TIPO_ESCALA[e.tipo]}
-                      classe="bg-primary/10 text-primary border-primary/25"
-                      className="text-[10px]"
-                    />
-                  </button>
+                    <Phone className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="tabular truncate">{pessoa.telefone}</span>
+                  </a>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Campo rotulo="Matrícula">{pessoa.matricula}</Campo>
+              <Campo rotulo="Admissão">{formatarData(pessoa.data_admissao)}</Campo>
+              <Campo rotulo="Local">{pessoa.local}</Campo>
+              <Campo rotulo="Modelo">{pessoa.modelo_trabalho}</Campo>
+            </div>
+
+            {porTurno.size > 0 && (
+              <div className="space-y-2">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  No mês em exibição
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {[...porTurno.entries()].map(([turnoId, quantidade]) => {
+                    const turno = [FOLGA, ...legenda].find((t) => t.id === turnoId) ?? FOLGA;
+                    return (
+                      <span
+                        key={turnoId}
+                        className={`rounded border px-2 py-0.5 text-[11px] font-medium ${classeDoTurno(turno)}`}
+                      >
+                        {turno.rotulo}: {quantidade}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Férias
+              </p>
+              {feriasDela.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Nenhum período registrado.</p>
+              ) : (
+                feriasDela.slice(0, 4).map((f) => (
+                  <div key={f.id} className="flex items-center justify-between rounded-lg border p-2 text-xs">
+                    <span className="tabular">
+                      {formatarData(f.data_inicio)} – {formatarData(f.data_fim)}
+                    </span>
+                    <span className="text-muted-foreground">{f.dias}d · {f.status}</span>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {ausenciasDela.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Ausências aprovadas
+                </p>
+                {ausenciasDela.slice(0, 4).map((a) => (
+                  <div key={a.id} className="flex items-center justify-between rounded-lg border p-2 text-xs">
+                    <span className="tabular">
+                      {formatarData(a.data_inicio)} – {formatarData(a.data_fim)}
+                    </span>
+                    <span className="text-muted-foreground">{a.tipo}</span>
+                  </div>
                 ))}
               </div>
-            );
-          })()}
-        </CardContent>
-      </Card>
+            )}
+
+            <Button variant="outline" className="w-full" onClick={() => navegar('/funcionarios')}>
+              Abrir ficha completa
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+    );
+  }
+}
+
+/**
+ * Edição da legenda de uma equipe.
+ *
+ * Enquanto a equipe usa a legenda embutida, os itens aparecem aqui como ponto
+ * de partida; a primeira gravação copia o conjunto para a equipe, e a partir
+ * daí ela mexe só no dela — sem afetar as outras.
+ */
+function EditorLegenda({
+  aberto,
+  aoFechar,
+  equipeId,
+  equipeNome,
+  legenda,
+  legendaPropria,
+  salvar,
+  remover,
+}: {
+  aberto: boolean;
+  aoFechar: () => void;
+  equipeId: string;
+  equipeNome: string;
+  legenda: TurnoLegenda[];
+  legendaPropria: boolean;
+  salvar: (t: TipoTurno) => Promise<void>;
+  remover: (id: string) => Promise<void>;
+}) {
+  const [salvando, setSalvando] = useState(false);
+
+  /** Copia a legenda embutida para a equipe, para poder ser editada. */
+  const adotarLegenda = async () => {
+    setSalvando(true);
+    try {
+      for (const turno of legendaInicialDaEquipe(equipeId, novoId)) {
+        await salvar(turno as TipoTurno);
+      }
+      toast.success('Legenda copiada para a equipe. Agora é só editar.');
+    } catch {
+      // Erro já virou toast em useDados().
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const adicionar = async () => {
+    setSalvando(true);
+    try {
+      await salvar({
+        id: novoId('tt'),
+        equipe_id: equipeId,
+        codigo: `T.${legenda.length + 1}`,
+        rotulo: 'Novo turno',
+        cor: 'cinza',
+        trabalha: true,
+        acionamento: 'nenhum',
+        hora_inicio: '08:00',
+        hora_fim: '17:00',
+        acionamento_inicio: '00:00',
+        acionamento_fim: '23:59',
+        tipo_plantao: 'comercial',
+        ordem: legenda.length + 1,
+        ativo: true,
+      });
+    } catch {
+      // Erro já virou toast em useDados().
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <Sheet open={aberto} onOpenChange={(v) => !v && aoFechar()}>
+      <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
+        <SheetHeader>
+          <SheetTitle>Legenda de {equipeNome}</SheetTitle>
+        </SheetHeader>
+
+        <div className="mt-6 space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Os códigos que aparecem na grade e no calendário desta equipe. O horário mora aqui: um
+            turno "Noturno 19:00–07:00" leva esse horário para todo dia em que for usado.
+          </p>
+
+          {!legendaPropria ? (
+            <>
+              <Aviso tom="info">
+                Esta equipe ainda usa a legenda padrão do sistema, compartilhada com as demais. Copie
+                para a equipe antes de editar — as outras equipes continuam com a delas.
+              </Aviso>
+              <div className="space-y-1.5">
+                {legenda.map((t) => (
+                  <div key={t.id} className="flex items-center gap-2 rounded-lg border p-2">
+                    <span className={`rounded border px-2 py-0.5 text-[11px] font-semibold ${classeDoTurno(t)}`}>
+                      {t.codigo}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm">{t.rotulo}</p>
+                      <p className="truncate text-[11px] text-muted-foreground">{descricaoDoTurno(t)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <Button className="w-full" disabled={salvando} onClick={adotarLegenda}>
+                {salvando ? 'Copiando...' : 'Copiar legenda para esta equipe'}
+              </Button>
+            </>
+          ) : (
+            <>
+              <div className="space-y-3">
+                {legenda.map((turno) => (
+                  <ItemLegenda key={turno.id} turno={turno} salvar={salvar} remover={remover} />
+                ))}
+              </div>
+              <Button variant="outline" className="w-full" disabled={salvando} onClick={adicionar}>
+                <Plus className="mr-2 h-4 w-4" /> Adicionar turno
+              </Button>
+            </>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+/** Uma linha editável da legenda. Salva ao sair do campo, sem botão por item. */
+function ItemLegenda({
+  turno,
+  salvar,
+  remover,
+}: {
+  turno: TurnoLegenda;
+  salvar: (t: TipoTurno) => Promise<void>;
+  remover: (id: string) => Promise<void>;
+}) {
+  const [rascunho, setRascunho] = useState<TurnoLegenda>(turno);
+  const alterado = JSON.stringify(rascunho) !== JSON.stringify(turno);
+
+  const aplicar = (mudanca: Partial<TurnoLegenda>) => setRascunho({ ...rascunho, ...mudanca });
+
+  return (
+    <div className="space-y-2 rounded-lg border p-3">
+      <div className="flex items-center gap-2">
+        <span className={`rounded border px-2 py-1 text-[11px] font-semibold ${classeDoTurno(rascunho)}`}>
+          {rascunho.codigo || '—'}
+        </span>
+        <Input
+          className="h-8 flex-1"
+          value={rascunho.rotulo}
+          placeholder="Nome do turno"
+          onChange={(e) => aplicar({ rotulo: e.target.value })}
+        />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-destructive"
+          title="Remover da legenda"
+          onClick={() => remover(turno.id)}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2">
+        <div className="space-y-1">
+          <Label className="text-xs">Código</Label>
+          <Input
+            className="h-8"
+            value={rascunho.codigo}
+            onChange={(e) => aplicar({ codigo: e.target.value })}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Cor</Label>
+          <Select value={rascunho.cor} onValueChange={(v) => aplicar({ cor: v as CorTurno })}>
+            <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {CORES_DISPONIVEIS.map((c) => (
+                <SelectItem key={c} value={c}>{CORES_TURNO[c].rotulo}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Acionamento</Label>
+          <Select
+            value={rascunho.acionamento}
+            onValueChange={(v) => aplicar({ acionamento: v as Acionamento })}
+          >
+            <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="nenhum">Nenhum</SelectItem>
+              <SelectItem value="plantao">Plantão (1ª linha)</SelectItem>
+              <SelectItem value="backup">Backup (2ª linha)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between rounded-lg border p-2">
+        <div>
+          <Label className="text-xs">Cumpre turno de trabalho</Label>
+          <p className="text-[11px] text-muted-foreground">
+            Desligue para turnos que só põem a pessoa de sobreaviso.
+          </p>
+        </div>
+        <Switch checked={rascunho.trabalha} onCheckedChange={(v) => aplicar({ trabalha: v })} />
+      </div>
+
+      {rascunho.trabalha && (
+        <div className="grid grid-cols-3 gap-2">
+          <div className="space-y-1">
+            <Label className="text-xs">Tipo</Label>
+            <Select
+              value={rascunho.tipo_plantao}
+              onValueChange={(v) => aplicar({ tipo_plantao: v as TipoPlantao })}
+            >
+              <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {(['comercial', 'diurno', 'noturno', 'especial'] as TipoPlantao[]).map((t) => (
+                  <SelectItem key={t} value={t}>{TIPO_PLANTAO[t]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Entra</Label>
+            <Input
+              className="h-8"
+              type="time"
+              value={rascunho.hora_inicio}
+              onChange={(e) => aplicar({ hora_inicio: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Sai</Label>
+            <Input
+              className="h-8"
+              type="time"
+              value={rascunho.hora_fim}
+              onChange={(e) => aplicar({ hora_fim: e.target.value })}
+            />
+          </div>
+        </div>
+      )}
+
+      {rascunho.acionamento !== 'nenhum' && (
+        <div className="grid grid-cols-3 gap-2">
+          <div className="flex items-end pb-1.5">
+            <p className="text-[11px] text-muted-foreground">Acionável das</p>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Início</Label>
+            <Input
+              className="h-8"
+              type="time"
+              value={rascunho.acionamento_inicio}
+              onChange={(e) => aplicar({ acionamento_inicio: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Fim</Label>
+            <Input
+              className="h-8"
+              type="time"
+              value={rascunho.acionamento_fim}
+              onChange={(e) => aplicar({ acionamento_fim: e.target.value })}
+            />
+          </div>
+        </div>
+      )}
+
+      {alterado && (
+        <Button size="sm" className="w-full" onClick={() => salvar(rascunho as TipoTurno)}>
+          Salvar "{rascunho.rotulo}"
+        </Button>
+      )}
     </div>
   );
 }

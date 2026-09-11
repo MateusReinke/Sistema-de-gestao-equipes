@@ -23,11 +23,12 @@ import type {
   IsoDate,
 } from '@/types/sgo';
 import { plantoesGerados } from '@/lib/geracaoPlantoes';
-import { estadoDeDetalhes, type EstadoDia } from '@/lib/estadosDia';
+import { turnoDeDetalhes, FOLGA_ID, type TurnoLegenda } from '@/lib/turnos';
 import { somarDias } from '@/lib/date';
 
 export interface DiaProjetado {
-  estado: EstadoDia;
+  /** Item da legenda da equipe que descreve o dia. */
+  turno: TurnoLegenda;
   /** Horário do que a pessoa faz nesse dia, já formatado (ex.: "09:00–18:00"). */
   horario: string;
   /**
@@ -51,6 +52,8 @@ interface Contexto {
   escalaFuncionarios: EscalaFuncionario[];
   ferias: Ferias[];
   ausencias: Ausencia[];
+  /** Legenda em uso pela equipe — ver `legendaDaEquipe`. */
+  legenda: TurnoLegenda[];
 }
 
 /** Todos os dias do intervalo, inclusive nas duas pontas. */
@@ -118,7 +121,10 @@ export function projetarEscalaEquipe(
     );
 
     // Turnos do período, de todas as escalas da pessoa, agrupados por dia.
-    const porDia = new Map<IsoDate, { tipo: EscalaDetalhe['tipo']; hora_inicio: string; hora_fim: string }[]>();
+    const porDia = new Map<
+      IsoDate,
+      { tipo: EscalaDetalhe['tipo']; tipo_turno_id?: string | null; hora_inicio: string; hora_fim: string }[]
+    >();
     const escalasDaPessoa: Escala[] = [];
 
     for (const vinculo of vinculos) {
@@ -135,19 +141,24 @@ export function projetarEscalaEquipe(
       );
       for (const p of gerados) {
         const lista = porDia.get(p.data) ?? [];
-        lista.push({ tipo: p.tipo, hora_inicio: p.hora_inicio, hora_fim: p.hora_fim });
+        lista.push({
+          tipo: p.tipo,
+          tipo_turno_id: p.tipo_turno_id,
+          hora_inicio: p.hora_inicio,
+          hora_fim: p.hora_fim,
+        });
         porDia.set(p.data, lista);
       }
     }
 
     const dias = new Map<IsoDate, DiaProjetado>();
     for (const [data, turnos] of porDia) {
-      const estado = estadoDeDetalhes(turnos);
+      const turno = turnoDeDetalhes(turnos, contexto.legenda);
       // O horário que interessa mostrar é o do turno de trabalho; quando só há
       // acionamento, é a janela em que a pessoa pode ser chamada.
       const principal = turnos.find((t) => t.tipo !== 'sobreaviso' && t.tipo !== 'backup') ?? turnos[0];
       dias.set(data, {
-        estado,
+        turno,
         horario: `${principal.hora_inicio}–${principal.hora_fim}`,
         indisponivel: indisponibilidade(funcionario.id, data, contexto.ferias, contexto.ausencias),
       });
@@ -171,7 +182,7 @@ export function coberturaPorDia(linhas: LinhaProjecao[], dias: IsoDate[]): Map<I
     for (const linha of linhas) {
       const dia = linha.dias.get(data);
       if (!dia || dia.indisponivel) continue;
-      if (dia.estado === 'folga' || dia.estado === 'backup') continue;
+      if (dia.turno.id === FOLGA_ID || dia.turno.acionamento === 'backup') continue;
       total++;
     }
     cobertura.set(data, total);

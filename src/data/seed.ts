@@ -33,6 +33,7 @@ import type {
 import { diasNoIntervalo, hoje, paraIso, somarDias } from '@/lib/date';
 import { periodoAquisitivoVigente, periodosAquisitivos } from '@/lib/rh';
 import { plantoesGerados } from '@/lib/geracaoPlantoes';
+import { gerarRevezamentoDiario } from '@/lib/composicaoEscalas';
 
 const HOJE = hoje();
 const dia = (offset: number) => somarDias(HOJE, offset);
@@ -244,6 +245,12 @@ export const escalas: Escala[] = [
 let seqDetalhe = 1;
 const proximoIdDetalhe = () => `ed${String(seqDetalhe++).padStart(2, '0')}`;
 
+/**
+ * Segunda-feira fixa: ancora em qual semana de calendário cai a "semana 1" do
+ * ciclo de cada pessoa, sem precisar acompanhar `hoje()`.
+ */
+const ANCORA = '2026-01-05';
+
 /** Expande um template "semana do ciclo → dias da semana" em linhas de `escala_detalhes`. */
 function turnosSemana(
   escalaId: string,
@@ -265,14 +272,35 @@ function turnosSemana(
   );
 }
 
+/**
+ * Par 12×36 montado pelo próprio compositor da aplicação — assim a massa de
+ * demonstração nunca fica com um padrão que a tela não produziria.
+ */
+function par12x36(
+  escalaA: string,
+  escalaB: string | null,
+  horaInicio: string,
+  horaFim: string,
+  tipo: TipoPlantao,
+): EscalaDetalhe[] {
+  const par = gerarRevezamentoDiario({ diaBase: ANCORA, horaInicio, horaFim, tipo });
+  const comIds = (escalaId: string, linhas: Omit<EscalaDetalhe, 'id' | 'escala_id'>[]) =>
+    linhas.map((d) => ({ ...d, id: proximoIdDetalhe(), escala_id: escalaId }));
+  return [
+    ...comIds(escalaA, par.detalhesPosicao1),
+    ...(escalaB ? comIds(escalaB, par.detalhesPosicao2) : []),
+  ];
+}
+
 export const escalaDetalhes: EscalaDetalhe[] = [
-  // Dom/Seg/Qua/Sex numa semana, Ter/Qui/Sáb na outra — e o inverso na
-  // parceira: juntas cobrem a semana inteira, nunca o mesmo dia duas vezes.
-  ...turnosSemana('esc1', { 1: [0, 1, 3, 5], 2: [2, 4, 6] }, '07:00', '19:00', 'diurno'),
-  ...turnosSemana('esc2', { 1: [2, 4, 6], 2: [0, 1, 3, 5] }, '07:00', '19:00', 'diurno'),
+  // Dias alternados, e a parceira cobre exatamente os dias que a primeira
+  // folga: juntas fecham a semana inteira sem nunca coincidir.
+  ...par12x36('esc1', 'esc2', '07:00', '19:00', 'diurno'),
   ...turnosSemana('esc3', { 1: [1, 2, 3, 4, 5] }, '08:00', '17:00', 'comercial'),
-  ...turnosSemana('esc4', { 1: [0, 1, 3, 5], 2: [2, 4, 6] }, '07:00', '19:00', 'diurno'),
-  ...turnosSemana('esc5', { 1: [0, 1, 3, 5], 2: [2, 4, 6] }, '19:00', '07:00', 'noturno'),
+  // NOC: um titular solo no diurno e outro no noturno, cada um em dias
+  // alternados — janelas de horário diferentes, mesmo desenho de dias.
+  ...par12x36('esc4', null, '07:00', '19:00', 'diurno'),
+  ...par12x36('esc5', null, '19:00', '07:00', 'noturno'),
   ...turnosSemana('esc6', { 1: [1, 2, 3, 4, 5, 6] }, '08:00', '16:00', 'comercial'),
   // "Ligado" a semana inteira (0–6) na semana 1 do ciclo da pessoa — a
   // âncora de cada vínculo é que decide qual semana civil é essa.
@@ -282,12 +310,9 @@ export const escalaDetalhes: EscalaDetalhe[] = [
 ];
 
 /**
- * Segunda-feira fixa: só ancora em qual semana civil cai a "semana 1" do
- * ciclo de cada pessoa, não precisa acompanhar `hoje()`. `ANCORA_SEGUINTE`,
- * uma semana depois, inverte quem está "ligado" — é o que faz o par de N1 e
- * o plantão/backup da Field Service revezarem de verdade.
+ * `ANCORA_SEGUINTE`, uma semana depois da âncora base, inverte quem está
+ * "ligado" — é o que faz o plantão/backup da Field Service revezar de verdade.
  */
-const ANCORA = '2026-01-05';
 const ANCORA_SEGUINTE = '2026-01-12';
 
 export const escalaFuncionarios: EscalaFuncionario[] = [

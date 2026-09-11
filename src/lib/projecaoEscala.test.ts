@@ -13,6 +13,7 @@ import type {
   Funcionario,
 } from '@/types/sgo';
 import { gerarRevezamentoDiario } from './composicaoEscalas';
+import { FOLGA, TURNOS_PADRAO } from './turnos';
 import { coberturaPorDia, diasDoIntervalo, projetarEscalaEquipe } from './projecaoEscala';
 
 const EQUIPE = 'eq-noc';
@@ -92,6 +93,7 @@ describe('projetarEscalaEquipe', () => {
     ],
     ferias: [] as Ferias[],
     ausencias: [] as Ausencia[],
+    legenda: TURNOS_PADRAO,
   };
 
   it('o par 12×36 aparece alternando dia a dia, sem lacuna', () => {
@@ -114,7 +116,7 @@ describe('projetarEscalaEquipe', () => {
   it('mostra o horário e o estado do dia', () => {
     const [ana] = projetarEscalaEquipe(base, EQUIPE, '2026-01-05', '2026-01-05');
     expect(ana.dias.get('2026-01-05')).toMatchObject({
-      estado: 'trabalho',
+      turno: { rotulo: 'Trabalho' },
       horario: '19:00–07:00',
     });
   });
@@ -150,7 +152,7 @@ describe('projetarEscalaEquipe', () => {
     );
 
     expect(linhas[0].dias.get('2026-01-05')).toMatchObject({
-      estado: 'trabalho_plantao',
+      turno: { rotulo: 'Trabalho + plantão' },
       // O horário mostrado é o do turno, não o da janela de acionamento.
       horario: '09:00–18:00',
     });
@@ -204,6 +206,8 @@ describe('projetarEscalaEquipe', () => {
   });
 });
 
+const porRotulo = (rotulo: string) => TURNOS_PADRAO.find((t) => t.rotulo === rotulo) ?? FOLGA;
+
 describe('coberturaPorDia', () => {
   const dias = diasDoIntervalo('2026-01-05', '2026-01-06');
 
@@ -213,16 +217,16 @@ describe('coberturaPorDia', () => {
         funcionario: pessoa('f1', 'Ana'),
         escalas: [],
         dias: new Map([
-          ['2026-01-05', { estado: 'trabalho' as const, horario: '09:00–18:00' }],
-          ['2026-01-06', { estado: 'backup' as const, horario: '00:00–23:59' }],
+          ['2026-01-05', { turno: porRotulo('Trabalho'), horario: '09:00–18:00' }],
+          ['2026-01-06', { turno: porRotulo('Backup de plantão'), horario: '00:00–23:59' }],
         ]),
       },
       {
         funcionario: pessoa('f2', 'Bruno'),
         escalas: [],
         dias: new Map([
-          ['2026-01-05', { estado: 'trabalho' as const, horario: '09:00–18:00', indisponivel: 'ferias' as const }],
-          ['2026-01-06', { estado: 'plantao' as const, horario: '00:00–23:59' }],
+          ['2026-01-05', { turno: porRotulo('Trabalho'), horario: '09:00–18:00', indisponivel: 'ferias' as const }],
+          ['2026-01-06', { turno: porRotulo('Plantão'), horario: '00:00–23:59' }],
         ]),
       },
     ];

@@ -56,6 +56,7 @@ export function rotasDados(app: FastifyInstance): void {
       equipesTodas,
       funcionarios,
       escalas,
+      tiposTurno,
       escalaDetalhes,
       escalaFuncionarios,
       plantoes,
@@ -72,6 +73,7 @@ export function rotasDados(app: FastifyInstance): void {
       // básico é visível a todos; o que é sensível vem nas coleções abaixo.
       db.select().from(t.funcionarios),
       db.select().from(t.escalas),
+      db.select().from(t.tiposTurno),
       db.select().from(t.escalaDetalhes),
       db.select().from(t.escalaFuncionarios),
       db
@@ -134,6 +136,7 @@ export function rotasDados(app: FastifyInstance): void {
       atendimentoEquipes,
       avaliacoesCliente,
       escalas,
+      tiposTurno,
       escalaDetalhes,
       escalaFuncionarios,
       plantoes,
