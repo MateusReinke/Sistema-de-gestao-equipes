@@ -100,6 +100,26 @@ export function diaDaSemana(iso: IsoDate): number {
   return paraData(iso).getDay();
 }
 
+/** Domingo que abre a semana de calendário desta data. */
+export function inicioDaSemana(iso: IsoDate): IsoDate {
+  return somarDias(iso, -diaDaSemana(iso));
+}
+
+/**
+ * Quantas semanas de calendário separam duas datas — não quantos blocos de 7
+ * dias.
+ *
+ * A diferença aparece quando as datas não caem no mesmo dia da semana: de
+ * sexta para a segunda seguinte são 3 dias (0 blocos de 7), mas já é a semana
+ * seguinte no calendário. Como a grade de uma escala é lida por coluna de dia
+ * da semana (Dom…Sáb), é a semana de calendário que precisa contar — do
+ * contrário a "semana 1" de quem foi cadastrado numa sexta iria de sexta a
+ * quinta, e um padrão "de segunda a sexta" sairia partido em duas semanas.
+ */
+export function diferencaSemanas(a: IsoDate, b: IsoDate): number {
+  return Math.round(diferencaDias(inicioDaSemana(a), inicioDaSemana(b)) / 7);
+}
+
 /* ------------------------------------------------------------------ horas */
 
 export function minutosDoDia(hora: HoraMinuto): number {

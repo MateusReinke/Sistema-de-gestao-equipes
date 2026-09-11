@@ -5,14 +5,21 @@
  * O template (`escala_detalhes`) descreve um padrão de `ciclo_semanas`
  * semanas: cada linha diz "nesta semana do ciclo, neste dia da semana, roda
  * este turno". Para saber em que semana do ciclo uma pessoa está num dia
- * `D` qualquer, conta-se quantas semanas se passaram desde a âncora dela
- * (`escala_funcionarios.ancora_em` — a data que marca "semana 1, dia 1" do
- * ciclo *para esta pessoa*) e tira o resto da divisão por `ciclo_semanas`.
+ * `D` qualquer, conta-se quantas **semanas de calendário** separam `D` da
+ * âncora dela (`escala_funcionarios.ancora_em` — a data que marca a semana 1
+ * do ciclo *para esta pessoa*) e tira o resto da divisão por `ciclo_semanas`.
  *
- * `dia_semana` é o dia real da semana (0=domingo…6=sábado), não um dia
- * contado a partir da âncora — só a *semana do ciclo* se desloca com ela.
- * Isso importa para quem for montar o template de uma escala compartilhada
- * por várias pessoas:
+ * Contar semanas de calendário, e não blocos de 7 dias a partir da âncora, é
+ * o que faz a grade significar o que aparenta. A grade é lida por coluna de
+ * dia da semana (Dom…Sáb); se a semana do ciclo começasse no dia da âncora,
+ * quem cadastrasse a escala numa sexta teria a "semana 1" indo de sexta a
+ * quinta, e um padrão "de segunda a sexta" sairia partido entre duas semanas
+ * do calendário — o mesmo motivo pelo qual a planilha de origem usa
+ * `WEEKNUM` na conta, não uma subtração de datas.
+ *
+ * `dia_semana` é o dia real da semana (0=domingo…6=sábado): só a *semana do
+ * ciclo* se desloca com a âncora. Isso importa para quem for montar o
+ * template de uma escala compartilhada por várias pessoas:
  *
  * - **Revezamento por semana inteira** (o plantão da INFRA: um responsável
  *   por semana, revezando entre N pessoas) funciona com uma escala só,
@@ -20,12 +27,10 @@
  *   cada data cai, e o `dia_semana` continua batendo com o calendário real
  *   igual para todo mundo.
  * - **Revezamento dia sim, dia não** (o par 12×36 da NOC) **não** dá para
- *   fazer com uma âncora de 1 dia sobre o mesmo template — um deslocamento
- *   que não é múltiplo de semana inteira não produz o complemento certo,
- *   porque o `dia_semana` não acompanha esse deslocamento. Cada metade do
- *   par ganha sua própria escala (mesmo par de horário, dias complementares
- *   já escritos no template — ex.: dom/seg/qua/sex numa, ter/qui/sáb na
- *   outra), com a mesma âncora nas duas.
+ *   fazer deslocando a âncora em um dia: a âncora move a semana do ciclo, e
+ *   um dia não chega a mover semana nenhuma. Cada metade do par ganha sua
+ *   própria escala, com dias complementares já escritos no template e a
+ *   mesma âncora nas duas — ver `composicaoEscalas.ts`.
  *
  * "Trabalho + Plantão" (alguém que trabalha de dia e ainda carrega o
  * plantão) também não precisa de um código híbrido: a pessoa fica vinculada
@@ -40,7 +45,7 @@
  * compõe é o chamador (o endpoint de geração), não este módulo.
  */
 import type { EscalaDetalhe, EscalaFuncionario, IsoDate, Plantao } from '@/types/sgo';
-import { diaDaSemana, diferencaDias, somarDias } from '@/lib/date';
+import { diaDaSemana, diferencaSemanas, somarDias } from '@/lib/date';
 
 export type PlantaoGerado = Pick<
   Plantao,
@@ -85,7 +90,7 @@ export function plantoesGerados(
     const candidatos = porDiaSemana.get(diaDaSemana(data));
     if (!candidatos || candidatos.length === 0) continue;
 
-    const semanasDesdeAncora = Math.floor(diferencaDias(vinculo.ancora_em, data) / 7);
+    const semanasDesdeAncora = diferencaSemanas(vinculo.ancora_em, data);
     const semanaDoCiclo = moduloPositivo(semanasDesdeAncora, cicloSemanas) + 1;
 
     for (const detalhe of candidatos) {

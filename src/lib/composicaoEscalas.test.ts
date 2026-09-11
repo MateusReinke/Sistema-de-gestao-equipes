@@ -129,10 +129,11 @@ describe('gerarRodizioComBackup', () => {
   const vinculosBackup = rodizio.vinculosBackup.map((v, i) => vinculo(`vb-${i}`, 'esc-backup', v));
 
   // Uma semana de cada vez, cobrindo o ciclo de 3 semanas inteiro.
+  // Semanas de calendário (domingo a sábado) — é assim que o motor conta.
   const semanas = [
-    { de: '2026-01-05', ate: '2026-01-11' }, // semana de G1
-    { de: '2026-01-12', ate: '2026-01-18' }, // semana de G2
-    { de: '2026-01-19', ate: '2026-01-25' }, // semana de G3
+    { de: '2026-01-04', ate: '2026-01-10' }, // semana de G1
+    { de: '2026-01-11', ate: '2026-01-17' }, // semana de G2
+    { de: '2026-01-18', ate: '2026-01-24' }, // semana de G3
   ];
 
   const quemEstaAtivoNaSemana = (vinculos: EscalaFuncionario[], de: string, ate: string) =>
@@ -170,7 +171,7 @@ describe('gerarRodizioComBackup', () => {
   it('respeita semanasPorTurno > 1 (ex.: rodízio quinzenal)', () => {
     const quinzenal = gerarRodizioComBackup({
       participantes: ['X1', 'X2'],
-      dataInicio: '2026-01-05',
+      dataInicio: '2026-01-04',
       dataFim: '2026-12-31',
       horaInicio: '00:00',
       horaFim: '23:59',
@@ -184,11 +185,11 @@ describe('gerarRodizioComBackup', () => {
     const vX2 = vinculo('vx2', 'esc-quinzenal', quinzenal.vinculosPrincipal[1]);
 
     // X1 cobre as duas primeiras semanas inteiras, sem furo.
-    const datasX1 = plantoesGerados(vX1, dPrincipal, quinzenal.ciclo_semanas, '2026-01-05', '2026-01-18');
+    const datasX1 = plantoesGerados(vX1, dPrincipal, quinzenal.ciclo_semanas, '2026-01-04', '2026-01-17');
     expect(datasX1).toHaveLength(14);
     // X2 nada produz nesse mesmo intervalo — é a quinzena seguinte.
-    expect(plantoesGerados(vX2, dPrincipal, quinzenal.ciclo_semanas, '2026-01-05', '2026-01-18')).toHaveLength(0);
-    const datasX2 = plantoesGerados(vX2, dPrincipal, quinzenal.ciclo_semanas, '2026-01-19', '2026-02-01');
+    expect(plantoesGerados(vX2, dPrincipal, quinzenal.ciclo_semanas, '2026-01-04', '2026-01-17')).toHaveLength(0);
+    const datasX2 = plantoesGerados(vX2, dPrincipal, quinzenal.ciclo_semanas, '2026-01-18', '2026-01-31');
     expect(datasX2).toHaveLength(14);
   });
 });

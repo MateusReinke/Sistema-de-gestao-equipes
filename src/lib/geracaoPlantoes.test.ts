@@ -68,11 +68,13 @@ describe('plantoesGerados', () => {
     // inteiro). `dia_semana` é o dia real da semana, não um dia relativo à
     // âncora — por isso as duas metades do par usam escalas diferentes (a
     // mesma dupla horário/tipo, dias complementares), em vez de tentar
-    // derivar a escala da B só deslocando a âncora da A em 1 dia: um
-    // deslocamento que não é múltiplo de semana inteira não produz o
-    // complemento certo, porque só a semana do ciclo se desloca com a
-    // âncora — o dia da semana, não. As duas usam a mesma âncora; o que
-    // alterna é em qual semana do ciclo cada dia real cai.
+    // derivar a escala da B só deslocando a âncora da A em 1 dia: a âncora
+    // move a semana do ciclo, e um dia não move semana nenhuma. As duas usam
+    // a mesma âncora; o que alterna é em qual semana do ciclo cada dia cai.
+    //
+    // Dentro de uma semana, trabalha-se nos dias de mesma paridade que a
+    // âncora (segunda = ímpar → seg/qua/sex); na semana seguinte, deslocada
+    // de 7 dias — número ímpar —, a paridade inverte.
     const ANCORA = '2026-01-05';
     const DE = '2026-01-05';
     const ATE = '2026-01-18';
@@ -90,10 +92,10 @@ describe('plantoesGerados', () => {
         })),
       );
 
-    // Dom/Seg/Qua/Sex na semana 1, Ter/Qui/Sáb na semana 2 — para B, o
+    // Seg/Qua/Sex na semana 1, Dom/Ter/Qui/Sáb na semana 2 — para B, o
     // inverso. Juntas cobrem a semana toda, sem se sobrepor nunca.
-    const detalhesA = detalhesDe('esc-diurno-a', { 1: [0, 1, 3, 5], 2: [2, 4, 6] });
-    const detalhesB = detalhesDe('esc-diurno-b', { 1: [2, 4, 6], 2: [0, 1, 3, 5] });
+    const detalhesA = detalhesDe('esc-diurno-a', { 1: [1, 3, 5], 2: [0, 2, 4, 6] });
+    const detalhesB = detalhesDe('esc-diurno-b', { 1: [0, 2, 4, 6], 2: [1, 3, 5] });
 
     const pessoaA: EscalaFuncionario = {
       id: 'vA', funcionario_id: 'fA', escala_id: 'esc-diurno-a',
@@ -147,35 +149,50 @@ describe('plantoesGerados', () => {
     // semana diferente do rodízio de 3 semanas.
     const vinculoDe = (id: string, funcionarioId: string, ancora: string): EscalaFuncionario => ({
       id, funcionario_id: funcionarioId, escala_id: 'esc-plantao-infra',
-      ancora_em: ancora, data_inicio: '2026-01-05', data_fim: '2026-02-01',
+      ancora_em: ancora, data_inicio: '2026-01-04', data_fim: '2026-02-01',
     });
 
     it('em cada semana, só uma das três pessoas está de plantão', () => {
-      // Âncora simples: cada pessoa ancorada no primeiro dia da própria
-      // semana "ligada" — dista da de A um múltiplo exato de 7 dias, o que
-      // é o que faz as três se revezarem em vez de coincidirem.
-      const pessoaA = vinculoDe('vA', 'fA', '2026-01-05'); // semana 1 dela: 05–11/jan
-      const pessoaB = vinculoDe('vB', 'fB', '2026-01-12'); // semana 1 dela: 12–18/jan
-      const pessoaC = vinculoDe('vC', 'fC', '2026-01-19'); // semana 1 dela: 19–25/jan
+      // Âncoras espaçadas em semanas inteiras — é o que faz as três se
+      // revezarem em vez de coincidirem. A semana de cada uma é a semana de
+      // calendário (domingo a sábado) em que a âncora cai, então ancorar na
+      // segunda-feira já liga a pessoa desde o domingo anterior.
+      const pessoaA = vinculoDe('vA', 'fA', '2026-01-05'); // semana dela: 04–10/jan
+      const pessoaB = vinculoDe('vB', 'fB', '2026-01-12'); // semana dela: 11–17/jan
+      const pessoaC = vinculoDe('vC', 'fC', '2026-01-19'); // semana dela: 18–24/jan
 
-      const de = '2026-01-05';
-      const ate = '2026-01-25';
+      const de = '2026-01-04';
+      const ate = '2026-01-24';
       const datasA = plantoesGerados(pessoaA, plantaoTemplate, 3, de, ate).map((p) => p.data);
       const datasB = plantoesGerados(pessoaB, plantaoTemplate, 3, de, ate).map((p) => p.data);
       const datasC = plantoesGerados(pessoaC, plantaoTemplate, 3, de, ate).map((p) => p.data);
 
       expect(datasA).toEqual([
-        '2026-01-05', '2026-01-06', '2026-01-07', '2026-01-08',
-        '2026-01-09', '2026-01-10', '2026-01-11',
+        '2026-01-04', '2026-01-05', '2026-01-06', '2026-01-07',
+        '2026-01-08', '2026-01-09', '2026-01-10',
       ]);
       expect(datasB).toEqual([
-        '2026-01-12', '2026-01-13', '2026-01-14', '2026-01-15',
-        '2026-01-16', '2026-01-17', '2026-01-18',
+        '2026-01-11', '2026-01-12', '2026-01-13', '2026-01-14',
+        '2026-01-15', '2026-01-16', '2026-01-17',
       ]);
       expect(datasC).toEqual([
-        '2026-01-19', '2026-01-20', '2026-01-21', '2026-01-22',
-        '2026-01-23', '2026-01-24', '2026-01-25',
+        '2026-01-18', '2026-01-19', '2026-01-20', '2026-01-21',
+        '2026-01-22', '2026-01-23', '2026-01-24',
       ]);
+    });
+
+    it('o dia da semana em que a escala foi cadastrada não muda o resultado', () => {
+      // A regressão que motivou contar semanas de calendário: com a conta
+      // antiga (dias ÷ 7), ancorar numa sexta fazia a "semana 1" ir de sexta
+      // a quinta, e o padrão saía partido em duas semanas do calendário.
+      const deSegunda = vinculoDe('v1', 'f1', '2026-01-05'); // segunda
+      const deSexta = vinculoDe('v2', 'f1', '2026-01-09'); // sexta da mesma semana
+      const de = '2026-01-04';
+      const ate = '2026-02-01';
+
+      expect(plantoesGerados(deSexta, plantaoTemplate, 3, de, ate).map((p) => p.data)).toEqual(
+        plantoesGerados(deSegunda, plantaoTemplate, 3, de, ate).map((p) => p.data),
+      );
     });
 
     it('"trabalho + plantão": a pessoa de plantão na semana também aparece na escala comercial — motor não precisa de código híbrido', () => {
@@ -214,10 +231,10 @@ describe('plantoesGerados', () => {
       };
 
       const duranteAPropriaSemana = plantoesGerados(
-        vinculoBackupA, backupTemplate, 3, '2026-01-05', '2026-01-11',
+        vinculoBackupA, backupTemplate, 3, '2026-01-04', '2026-01-10',
       );
       const duranteASemanaDeB = plantoesGerados(
-        vinculoBackupA, backupTemplate, 3, '2026-01-12', '2026-01-18',
+        vinculoBackupA, backupTemplate, 3, '2026-01-11', '2026-01-17',
       );
 
       expect(duranteAPropriaSemana).toHaveLength(0); // A não é o próprio backup.

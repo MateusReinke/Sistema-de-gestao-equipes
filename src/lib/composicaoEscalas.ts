@@ -36,14 +36,17 @@ export interface RevezamentoDiario {
  * das duas pessoas à mão (e errar a da segunda, que é a causa mais comum de
  * a escala "não fechar").
  *
- * As duas posições compartilham a mesma âncora (`diaBase`). O que as separa
- * não é um deslocamento de âncora — 1 dia de deslocamento não fecha um par
- * 12×36, porque só a *semana do ciclo* se desloca com a âncora, não o dia da
- * semana (`geracaoPlantoes.ts` explica o porquê) — e sim as semanas do
- * próprio template trocadas de lugar: com `diaBase` como referência, os 4
- * dias que a posição 1 cobre na semana 1 são exatamente os 3 dias que ela
- * folga na semana 2, e vice-versa. A posição 2 é a posição 1 com as semanas 1
- * e 2 invertidas, o que já basta para preencher sempre o oposto.
+ * A regra sai da paridade. Como a semana do ciclo é contada em semanas de
+ * calendário (ver `geracaoPlantoes.ts`), a semana 1 é a semana do domingo de
+ * `diaBase` e a semana 2 é a seguinte — deslocada de exatos 7 dias, que é
+ * ímpar em "dias alternados". Então, dentro da semana 1, trabalha-se nos dias
+ * da semana de **mesma paridade** que `diaBase`; na semana 2, nos de paridade
+ * **oposta**. É o padrão que a planilha de origem já usava no par noturno da
+ * NOC: semana 1 seg/qua/sex, semana 2 dom/ter/qui/sáb.
+ *
+ * As duas posições compartilham a mesma âncora (`diaBase`); a posição 2 é a
+ * posição 1 com as semanas 1 e 2 trocadas, o que cobre exatamente os dias que
+ * a outra folga.
  */
 export function gerarRevezamentoDiario(params: {
   diaBase: IsoDate;
@@ -52,11 +55,11 @@ export function gerarRevezamentoDiario(params: {
   tipo: TipoPlantao;
 }): RevezamentoDiario {
   const { diaBase, horaInicio, horaFim, tipo } = params;
-  const diaSemanaBase = diaDaSemana(diaBase);
+  const paridadeBase = diaDaSemana(diaBase) % 2;
 
-  // 7 dias da semana, divididos pela paridade da distância até `diaBase`.
-  const diasImpares = [0, 2, 4, 6].map((k) => (diaSemanaBase + k) % 7); // 4 dias
-  const diasPares = [1, 3, 5].map((k) => (diaSemanaBase + k) % 7); // 3 dias
+  const todosOsDias = [0, 1, 2, 3, 4, 5, 6];
+  const mesmaParidade = todosOsDias.filter((d) => d % 2 === paridadeBase);
+  const paridadeOposta = todosOsDias.filter((d) => d % 2 !== paridadeBase);
 
   const linha = (semana: 1 | 2, dia: number): Detalhe => ({
     semana_do_ciclo: semana,
@@ -69,12 +72,12 @@ export function gerarRevezamentoDiario(params: {
   return {
     ciclo_semanas: 2,
     detalhesPosicao1: [
-      ...diasImpares.map((d) => linha(1, d)),
-      ...diasPares.map((d) => linha(2, d)),
+      ...mesmaParidade.map((d) => linha(1, d)),
+      ...paridadeOposta.map((d) => linha(2, d)),
     ],
     detalhesPosicao2: [
-      ...diasPares.map((d) => linha(1, d)),
-      ...diasImpares.map((d) => linha(2, d)),
+      ...paridadeOposta.map((d) => linha(1, d)),
+      ...mesmaParidade.map((d) => linha(2, d)),
     ],
   };
 }
