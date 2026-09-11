@@ -438,8 +438,16 @@ export const escalaFuncionarios = pgTable('escala_funcionarios', {
     .references(() => escalas.id, { onDelete: 'cascade' }),
   /**
    * Data que corresponde à semana 1, dia 1 do ciclo — para esta pessoa.
-   * É o que permite duas pessoas compartilharem a mesma escala revezando em
-   * dias opostos: mesma `escala_id`, âncora com 1 dia de diferença.
+   * É o que permite duas pessoas compartilharem a mesma escala revezando por
+   * semana cheia (ex.: plantão de infra, uma pessoa por semana): mesma
+   * `escala_id`, âncoras espaçadas em semanas inteiras.
+   *
+   * Não serve para revezar dia a dia (ex.: par 12×36) — 1 dia de
+   * deslocamento na âncora não fecha esse padrão, porque só a *semana do
+   * ciclo* se desloca com ela, não o `dia_semana` do template (ver o
+   * cabeçalho de `src/lib/geracaoPlantoes.ts`). Esse caso usa duas escalas
+   * com templates complementares, âncora igual nas duas — ver
+   * `src/lib/composicaoEscalas.ts`.
    */
   ancora_em: date('ancora_em').notNull(),
   data_inicio: date('data_inicio').notNull(),
