@@ -26,11 +26,13 @@ import type {
   ServicoContratado,
   Sistema,
   SolicitacaoAcesso,
+  TipoPlantao,
   TrocaPlantao,
   Usuario,
 } from '@/types/sgo';
 import { diasNoIntervalo, hoje, paraIso, somarDias } from '@/lib/date';
 import { periodoAquisitivoVigente, periodosAquisitivos } from '@/lib/rh';
+import { plantoesGerados } from '@/lib/geracaoPlantoes';
 
 const HOJE = hoje();
 const dia = (offset: number) => somarDias(HOJE, offset);
@@ -210,86 +212,138 @@ export const usuarios: Usuario[] = [
   { id: 'u5', funcionario_id: 'f03', email: 'ana.silva@lumini.com.br', role: 'colaborador', ativo: true },
 ];
 
+/**
+ * Nove escalas, cobrindo os padrões reais de rodízio da operação:
+ *
+ * - **N1** (`esc1`/`esc2`): par 12×36 diurno revezando dia sim, dia não —
+ *   duas escalas com o mesmo par de horário e dias complementares, porque
+ *   `dia_semana` é o dia real da semana e só um deslocamento de *semana
+ *   inteira* entre âncoras desloca corretamente quem pega qual dia (ver
+ *   `src/lib/geracaoPlantoes.ts`). `esc9` cobre o fim de semana à parte.
+ * - **N2** (`esc3`): comercial 5×2 simples, três pessoas no mesmo padrão.
+ * - **NOC** (`esc4`/`esc5`): 12×36 diurno e noturno, um titular solo em
+ *   cada — o mesmo mecanismo do par de N1, só que sem parceiro.
+ * - **Field Service** (`esc6`/`esc7`/`esc8`): comercial 6×1 para os dois,
+ *   mais plantão e backup de plantão revezando semana a semana entre eles —
+ *   uma pessoa vinculada à comercial e à de plantão na própria semana é
+ *   como "trabalha de dia e ainda carrega o plantão" nasce, sem precisar de
+ *   um código de turno híbrido.
+ */
 export const escalas: Escala[] = [
-  { id: 'esc1', nome: 'Plantão 12×36 — Diurno', tipo: '12x36', descricao: 'Turno diurno 07h–19h em dias alternados', ativo: true },
-  { id: 'esc2', nome: 'Plantão 12×36 — Noturno', tipo: '12x36', descricao: 'Turno noturno 19h–07h em dias alternados', ativo: true },
-  { id: 'esc3', nome: 'Comercial 5×2', tipo: '5x2', descricao: 'Segunda a sexta, 08h–17h', ativo: true },
-  { id: 'esc4', nome: 'Cobertura de Fim de Semana', tipo: 'personalizada', descricao: 'Sábado e domingo, 08h–20h', ativo: true },
-  { id: 'esc5', nome: 'Field Service 6×1', tipo: '6x1', descricao: 'Segunda a sábado, 08h–16h', ativo: true },
+  { id: 'esc1', nome: '12×36 Diurno N1 — Ímpar', tipo: '12x36', descricao: 'Turno diurno 07h–19h, semana ímpar do par', equipe_id: 'eq1', ciclo_semanas: 2, papel: 'trabalho', ativo: true },
+  { id: 'esc2', nome: '12×36 Diurno N1 — Par', tipo: '12x36', descricao: 'Turno diurno 07h–19h, semana par do par', equipe_id: 'eq1', ciclo_semanas: 2, papel: 'trabalho', ativo: true },
+  { id: 'esc3', nome: 'Comercial N2', tipo: '5x2', descricao: 'Segunda a sexta, 08h–17h', equipe_id: 'eq2', ciclo_semanas: 1, papel: 'trabalho', ativo: true },
+  { id: 'esc4', nome: '12×36 Diurno NOC', tipo: '12x36', descricao: 'Turno diurno 07h–19h em dias alternados', equipe_id: 'eq3', ciclo_semanas: 2, papel: 'trabalho', ativo: true },
+  { id: 'esc5', nome: '12×36 Noturno NOC', tipo: '12x36', descricao: 'Turno noturno 19h–07h em dias alternados', equipe_id: 'eq3', ciclo_semanas: 2, papel: 'trabalho', ativo: true },
+  { id: 'esc6', nome: 'Comercial Field Service', tipo: '6x1', descricao: 'Segunda a sábado, 08h–16h', equipe_id: 'eq5', ciclo_semanas: 1, papel: 'trabalho', ativo: true },
+  { id: 'esc7', nome: 'Plantão Field Service', tipo: 'personalizada', descricao: 'Sobreaviso 16h–08h, uma semana por vez, revezando', equipe_id: 'eq5', ciclo_semanas: 2, papel: 'plantao', ativo: true },
+  { id: 'esc8', nome: 'Backup Plantão Field Service', tipo: 'personalizada', descricao: 'Sobreaviso 16h–08h, cobre a semana em que o outro está de plantão', equipe_id: 'eq5', ciclo_semanas: 2, papel: 'backup', ativo: true },
+  { id: 'esc9', nome: 'Cobertura de Fim de Semana N1', tipo: 'personalizada', descricao: 'Sábado e domingo, 08h–20h', equipe_id: 'eq1', ciclo_semanas: 1, papel: 'trabalho', ativo: true },
 ];
+
+let seqDetalhe = 1;
+const proximoIdDetalhe = () => `ed${String(seqDetalhe++).padStart(2, '0')}`;
+
+/** Expande um template "semana do ciclo → dias da semana" em linhas de `escala_detalhes`. */
+function turnosSemana(
+  escalaId: string,
+  porSemana: Partial<Record<1 | 2, number[]>>,
+  horaInicio: string,
+  horaFim: string,
+  tipo: TipoPlantao,
+): EscalaDetalhe[] {
+  return ([1, 2] as const).flatMap((semana) =>
+    (porSemana[semana] ?? []).map((diaSemana) => ({
+      id: proximoIdDetalhe(),
+      escala_id: escalaId,
+      semana_do_ciclo: semana,
+      dia_semana: diaSemana,
+      hora_inicio: horaInicio,
+      hora_fim: horaFim,
+      tipo,
+    })),
+  );
+}
 
 export const escalaDetalhes: EscalaDetalhe[] = [
-  { id: 'ed01', escala_id: 'esc1', dia_semana: 0, hora_inicio: '07:00', hora_fim: '19:00' },
-  { id: 'ed02', escala_id: 'esc1', dia_semana: 2, hora_inicio: '07:00', hora_fim: '19:00' },
-  { id: 'ed03', escala_id: 'esc1', dia_semana: 4, hora_inicio: '07:00', hora_fim: '19:00' },
-  { id: 'ed04', escala_id: 'esc2', dia_semana: 1, hora_inicio: '19:00', hora_fim: '07:00' },
-  { id: 'ed05', escala_id: 'esc2', dia_semana: 3, hora_inicio: '19:00', hora_fim: '07:00' },
-  { id: 'ed06', escala_id: 'esc2', dia_semana: 5, hora_inicio: '19:00', hora_fim: '07:00' },
-  { id: 'ed07', escala_id: 'esc3', dia_semana: 1, hora_inicio: '08:00', hora_fim: '17:00' },
-  { id: 'ed08', escala_id: 'esc3', dia_semana: 2, hora_inicio: '08:00', hora_fim: '17:00' },
-  { id: 'ed09', escala_id: 'esc3', dia_semana: 3, hora_inicio: '08:00', hora_fim: '17:00' },
-  { id: 'ed10', escala_id: 'esc3', dia_semana: 4, hora_inicio: '08:00', hora_fim: '17:00' },
-  { id: 'ed11', escala_id: 'esc3', dia_semana: 5, hora_inicio: '08:00', hora_fim: '17:00' },
-  { id: 'ed12', escala_id: 'esc4', dia_semana: 6, hora_inicio: '08:00', hora_fim: '20:00' },
-  { id: 'ed13', escala_id: 'esc4', dia_semana: 0, hora_inicio: '08:00', hora_fim: '20:00' },
-  { id: 'ed14', escala_id: 'esc5', dia_semana: 1, hora_inicio: '08:00', hora_fim: '16:00' },
-  { id: 'ed15', escala_id: 'esc5', dia_semana: 2, hora_inicio: '08:00', hora_fim: '16:00' },
-  { id: 'ed16', escala_id: 'esc5', dia_semana: 3, hora_inicio: '08:00', hora_fim: '16:00' },
-  { id: 'ed17', escala_id: 'esc5', dia_semana: 4, hora_inicio: '08:00', hora_fim: '16:00' },
-  { id: 'ed18', escala_id: 'esc5', dia_semana: 5, hora_inicio: '08:00', hora_fim: '16:00' },
-  { id: 'ed19', escala_id: 'esc5', dia_semana: 6, hora_inicio: '08:00', hora_fim: '16:00' },
-];
-
-export const escalaFuncionarios: EscalaFuncionario[] = [
-  { id: 'ef1', funcionario_id: 'f03', escala_id: 'esc1', data_inicio: dia(-180), data_fim: dia(185) },
-  { id: 'ef2', funcionario_id: 'f04', escala_id: 'esc2', data_inicio: dia(-180), data_fim: dia(185) },
-  { id: 'ef3', funcionario_id: 'f05', escala_id: 'esc3', data_inicio: dia(-180), data_fim: dia(185) },
-  { id: 'ef4', funcionario_id: 'f06', escala_id: 'esc1', data_inicio: dia(-180), data_fim: dia(185) },
-  { id: 'ef5', funcionario_id: 'f11', escala_id: 'esc3', data_inicio: dia(-180), data_fim: dia(185) },
-  { id: 'ef6', funcionario_id: 'f12', escala_id: 'esc4', data_inicio: dia(-90), data_fim: dia(120) },
-  { id: 'ef7', funcionario_id: 'f13', escala_id: 'esc5', data_inicio: dia(-180), data_fim: dia(185) },
-  { id: 'ef8', funcionario_id: 'f18', escala_id: 'esc3', data_inicio: dia(-120), data_fim: dia(185) },
+  // Dom/Seg/Qua/Sex numa semana, Ter/Qui/Sáb na outra — e o inverso na
+  // parceira: juntas cobrem a semana inteira, nunca o mesmo dia duas vezes.
+  ...turnosSemana('esc1', { 1: [0, 1, 3, 5], 2: [2, 4, 6] }, '07:00', '19:00', 'diurno'),
+  ...turnosSemana('esc2', { 1: [2, 4, 6], 2: [0, 1, 3, 5] }, '07:00', '19:00', 'diurno'),
+  ...turnosSemana('esc3', { 1: [1, 2, 3, 4, 5] }, '08:00', '17:00', 'comercial'),
+  ...turnosSemana('esc4', { 1: [0, 1, 3, 5], 2: [2, 4, 6] }, '07:00', '19:00', 'diurno'),
+  ...turnosSemana('esc5', { 1: [0, 1, 3, 5], 2: [2, 4, 6] }, '19:00', '07:00', 'noturno'),
+  ...turnosSemana('esc6', { 1: [1, 2, 3, 4, 5, 6] }, '08:00', '16:00', 'comercial'),
+  // "Ligado" a semana inteira (0–6) na semana 1 do ciclo da pessoa — a
+  // âncora de cada vínculo é que decide qual semana civil é essa.
+  ...turnosSemana('esc7', { 1: [0, 1, 2, 3, 4, 5, 6] }, '16:00', '08:00', 'sobreaviso'),
+  ...turnosSemana('esc8', { 1: [0, 1, 2, 3, 4, 5, 6] }, '16:00', '08:00', 'sobreaviso'),
+  ...turnosSemana('esc9', { 1: [6, 0] }, '08:00', '20:00', 'especial'),
 ];
 
 /**
- * Gera a agenda de plantões de −21 a +45 dias a partir das escalas atribuídas,
- * cobrindo o mês anterior, o atual e o próximo na visão de calendário.
+ * Segunda-feira fixa: só ancora em qual semana civil cai a "semana 1" do
+ * ciclo de cada pessoa, não precisa acompanhar `hoje()`. `ANCORA_SEGUINTE`,
+ * uma semana depois, inverte quem está "ligado" — é o que faz o par de N1 e
+ * o plantão/backup da Field Service revezarem de verdade.
+ */
+const ANCORA = '2026-01-05';
+const ANCORA_SEGUINTE = '2026-01-12';
+
+export const escalaFuncionarios: EscalaFuncionario[] = [
+  { id: 'ef01', funcionario_id: 'f03', escala_id: 'esc1', ancora_em: ANCORA, data_inicio: dia(-180), data_fim: dia(185) },
+  { id: 'ef02', funcionario_id: 'f04', escala_id: 'esc2', ancora_em: ANCORA, data_inicio: dia(-180), data_fim: dia(185) },
+  { id: 'ef03', funcionario_id: 'f05', escala_id: 'esc3', ancora_em: ANCORA, data_inicio: dia(-180), data_fim: dia(185) },
+  { id: 'ef04', funcionario_id: 'f06', escala_id: 'esc3', ancora_em: ANCORA, data_inicio: dia(-180), data_fim: dia(185) },
+  { id: 'ef05', funcionario_id: 'f18', escala_id: 'esc3', ancora_em: ANCORA, data_inicio: dia(-120), data_fim: dia(185) },
+  { id: 'ef06', funcionario_id: 'f11', escala_id: 'esc4', ancora_em: ANCORA, data_inicio: dia(-180), data_fim: dia(185) },
+  { id: 'ef07', funcionario_id: 'f12', escala_id: 'esc5', ancora_em: ANCORA, data_inicio: dia(-90), data_fim: dia(120) },
+  { id: 'ef08', funcionario_id: 'f13', escala_id: 'esc6', ancora_em: ANCORA, data_inicio: dia(-180), data_fim: dia(185) },
+  { id: 'ef09', funcionario_id: 'f14', escala_id: 'esc6', ancora_em: ANCORA, data_inicio: dia(-180), data_fim: dia(185) },
+  // f13 de plantão na semana da ANCORA; f14, na semana seguinte — e cada um
+  // cobre o backup exatamente na semana em que o outro é o principal.
+  { id: 'ef10', funcionario_id: 'f13', escala_id: 'esc7', ancora_em: ANCORA, data_inicio: dia(-180), data_fim: dia(185) },
+  { id: 'ef11', funcionario_id: 'f14', escala_id: 'esc7', ancora_em: ANCORA_SEGUINTE, data_inicio: dia(-180), data_fim: dia(185) },
+  { id: 'ef12', funcionario_id: 'f13', escala_id: 'esc8', ancora_em: ANCORA_SEGUINTE, data_inicio: dia(-180), data_fim: dia(185) },
+  { id: 'ef13', funcionario_id: 'f14', escala_id: 'esc8', ancora_em: ANCORA, data_inicio: dia(-180), data_fim: dia(185) },
+  { id: 'ef14', funcionario_id: 'f17', escala_id: 'esc9', ancora_em: ANCORA, data_inicio: dia(-180), data_fim: dia(185) },
+];
+
+/**
+ * Gera a agenda de plantões de −21 a +45 dias a partir das escalas
+ * atribuídas, cobrindo o mês anterior, o atual e o próximo na visão de
+ * calendário — projetando o template de cada vínculo com o mesmo motor
+ * (`plantoesGerados`) que a geração em lote real usa
+ * (`POST /api/equipes/:id/gerar-plantoes`), para as duas nunca divergirem.
  */
 function gerarPlantoes(): Plantao[] {
-  const porEscala: Record<string, { tipo: Plantao['tipo']; dias: number[]; inicio: string; fim: string }> = {
-    esc1: { tipo: 'diurno', dias: [0, 2, 4], inicio: '07:00', fim: '19:00' },
-    esc2: { tipo: 'noturno', dias: [1, 3, 5], inicio: '19:00', fim: '07:00' },
-    esc3: { tipo: 'comercial', dias: [1, 2, 3, 4, 5], inicio: '08:00', fim: '17:00' },
-    esc4: { tipo: 'especial', dias: [0, 6], inicio: '08:00', fim: '20:00' },
-    esc5: { tipo: 'sobreaviso', dias: [1, 2, 3, 4, 5, 6], inicio: '08:00', fim: '16:00' },
-  };
-
-  const resultado: Plantao[] = [];
-  let seq = 1;
-
-  for (let offset = -21; offset <= 45; offset++) {
-    const data = dia(offset);
-    const diaSemana = new Date(`${data}T12:00:00`).getDay();
-
-    for (const vinculo of escalaFuncionarios) {
-      if (data < vinculo.data_inicio || data > vinculo.data_fim) continue;
-      const cfg = porEscala[vinculo.escala_id];
-      if (!cfg || !cfg.dias.includes(diaSemana)) continue;
-
-      resultado.push({
-        id: `p${String(seq++).padStart(4, '0')}`,
-        funcionario_id: vinculo.funcionario_id,
-        escala_id: vinculo.escala_id,
-        data,
-        hora_inicio: cfg.inicio,
-        hora_fim: cfg.fim,
-        tipo: cfg.tipo,
-        // Plantões passados já foram confirmados; futuros seguem previstos.
-        status: offset < 0 ? 'confirmado' : 'previsto',
-      });
-    }
+  const escalaPorId = new Map(escalas.map((e) => [e.id, e]));
+  const detalhesPorEscala = new Map<string, EscalaDetalhe[]>();
+  for (const d of escalaDetalhes) {
+    const lista = detalhesPorEscala.get(d.escala_id) ?? [];
+    lista.push(d);
+    detalhesPorEscala.set(d.escala_id, lista);
   }
-  return resultado;
+
+  const de = dia(-21);
+  const ate = dia(45);
+
+  const candidatos = escalaFuncionarios.flatMap((vinculo) => {
+    const escala = escalaPorId.get(vinculo.escala_id);
+    if (!escala) return [];
+    return plantoesGerados(vinculo, detalhesPorEscala.get(escala.id) ?? [], escala.ciclo_semanas, de, ate);
+  });
+
+  // Ordem cronológica só para o array ficar legível — nada depende disso.
+  candidatos.sort((a, b) => a.data.localeCompare(b.data) || a.hora_inicio.localeCompare(b.hora_inicio));
+
+  return candidatos.map((candidato, i) => ({
+    id: `p${String(i + 1).padStart(4, '0')}`,
+    ...candidato,
+    // Plantões passados já foram confirmados; futuros seguem previstos.
+    status: candidato.data < HOJE ? 'confirmado' : 'previsto',
+    gerado_automaticamente: true,
+  }));
 }
 
 export const plantoes: Plantao[] = gerarPlantoes();

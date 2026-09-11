@@ -8,11 +8,13 @@ import {
   Download,
   Plus,
   Trash2,
+  Wand2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -52,6 +54,7 @@ export default function PlantoesPage() {
     removerPlantao,
     salvarTrocaPlantao,
     trocasPlantao,
+    gerarPlantoesEquipe,
   } = useDados();
   const { sessao, podeGerenciar, equipesVisiveis } = useAuth();
 
@@ -62,6 +65,16 @@ export default function PlantoesPage() {
   const [trocaDe, setTrocaDe] = useState<Plantao | null>(null);
   const [substitutoId, setSubstitutoId] = useState('');
   const [motivoTroca, setMotivoTroca] = useState('');
+
+  const [gerarAberto, setGerarAberto] = useState(false);
+  const [equipeGerar, setEquipeGerar] = useState('');
+  const [deGerar, setDeGerar] = useState('');
+  const [ateGerar, setAteGerar] = useState('');
+  const [sobrescreverGerar, setSobrescreverGerar] = useState(false);
+  const [gerando, setGerando] = useState(false);
+  const [resultadoGerar, setResultadoGerar] = useState<
+    { criados: number; atualizados: number; pulados: number } | null
+  >(null);
 
   const ano = mesAtual.getFullYear();
   const mes = mesAtual.getMonth();
@@ -140,6 +153,7 @@ export default function PlantoesPage() {
       hora_fim: '17:00',
       tipo: 'comercial',
       status: 'previsto',
+      gerado_automaticamente: false,
     });
   };
 
@@ -187,6 +201,35 @@ export default function PlantoesPage() {
     setMotivoTroca('');
   };
 
+  const abrirGerar = () => {
+    const primeiraEquipe = equipes.find(
+      (e) => e.ativo && (equipesVisiveis === null || equipesVisiveis.includes(e.id)),
+    );
+    setEquipeGerar(primeiraEquipe?.id ?? '');
+    setDeGerar(`${ano}-${String(mes + 1).padStart(2, '0')}-01`);
+    setAteGerar(paraIso(new Date(ano, mes + 1, 0)));
+    setSobrescreverGerar(false);
+    setResultadoGerar(null);
+    setGerarAberto(true);
+  };
+
+  const executarGerar = async () => {
+    if (!equipeGerar) return toast.error('Escolha uma equipe.');
+    if (!deGerar || !ateGerar || deGerar > ateGerar) {
+      return toast.error('Informe um período válido, com início não posterior ao fim.');
+    }
+    setGerando(true);
+    try {
+      const resultado = await gerarPlantoesEquipe(equipeGerar, deGerar, ateGerar, sobrescreverGerar);
+      setResultadoGerar(resultado);
+      toast.success('Escala gerada.');
+    } catch {
+      // A mensagem de erro já apareceu via toast em useDados().
+    } finally {
+      setGerando(false);
+    }
+  };
+
   const exportar = () =>
     baixarCsv(`plantoes-${ano}-${String(mes + 1).padStart(2, '0')}`, noMes, [
       { cabecalho: 'Data', valor: (p) => formatarData(p.data) },
@@ -211,9 +254,14 @@ export default function PlantoesPage() {
               <Download className="mr-2 h-4 w-4" /> Exportar mês
             </Button>
             {podeGerenciar && (
-              <Button onClick={() => abrirNovo(hojeIso)}>
-                <Plus className="mr-2 h-4 w-4" /> Escalar plantão
-              </Button>
+              <>
+                <Button variant="outline" onClick={abrirGerar}>
+                  <Wand2 className="mr-2 h-4 w-4" /> Gerar plantões
+                </Button>
+                <Button onClick={() => abrirNovo(hojeIso)}>
+                  <Plus className="mr-2 h-4 w-4" /> Escalar plantão
+                </Button>
+              </>
             )}
           </>
         }
@@ -622,6 +670,92 @@ export default function PlantoesPage() {
               </div>
             </div>
           )}
+        </SheetContent>
+      </Sheet>
+
+      {/* Geração em lote a partir do rodízio da equipe */}
+      <Sheet open={gerarAberto} onOpenChange={(v) => !v && setGerarAberto(false)}>
+        <SheetContent className="w-full overflow-y-auto sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Gerar plantões</SheetTitle>
+          </SheetHeader>
+          <div className="mt-6 space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Projeta o rodízio cadastrado em Escalas sobre o período escolhido e cria os plantões —
+              sem precisar lançar um por um.
+            </p>
+
+            <div className="space-y-1.5">
+              <Label>Equipe</Label>
+              <Select value={equipeGerar} onValueChange={setEquipeGerar} disabled={resultadoGerar !== null}>
+                <SelectTrigger><SelectValue placeholder="Selecione a equipe" /></SelectTrigger>
+                <SelectContent>
+                  {equipes
+                    .filter((e) => e.ativo && (equipesVisiveis === null || equipesVisiveis.includes(e.id)))
+                    .map((e) => <SelectItem key={e.id} value={e.id}>{e.nome}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>De</Label>
+                <Input
+                  type="date"
+                  value={deGerar}
+                  disabled={resultadoGerar !== null}
+                  onChange={(e) => setDeGerar(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Até</Label>
+                <Input
+                  type="date"
+                  value={ateGerar}
+                  disabled={resultadoGerar !== null}
+                  onChange={(e) => setAteGerar(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <Label className="text-sm">Sobrescrever ajustes manuais</Label>
+                <p className="text-xs text-muted-foreground">
+                  Sem isto, um plantão lançado à mão no período não é alterado.
+                </p>
+              </div>
+              <Switch
+                checked={sobrescreverGerar}
+                disabled={resultadoGerar !== null}
+                onCheckedChange={setSobrescreverGerar}
+              />
+            </div>
+
+            {resultadoGerar && (
+              <Aviso tom="info">
+                {resultadoGerar.criados} criado(s), {resultadoGerar.atualizados} atualizado(s) e{' '}
+                {resultadoGerar.pulados} pulado(s) — já estavam ajustados à mão.
+              </Aviso>
+            )}
+
+            <div className="flex gap-2 pt-2">
+              {resultadoGerar ? (
+                <Button className="flex-1" onClick={() => setGerarAberto(false)}>
+                  Concluir
+                </Button>
+              ) : (
+                <>
+                  <Button variant="ghost" className="flex-1" onClick={() => setGerarAberto(false)}>
+                    Cancelar
+                  </Button>
+                  <Button className="flex-1" onClick={executarGerar} disabled={gerando}>
+                    {gerando ? 'Gerando...' : 'Gerar'}
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
         </SheetContent>
       </Sheet>
     </div>

@@ -64,6 +64,14 @@ export const tipoContrato = pgEnum('tipo_contrato', ['clt', 'pj', 'estagio', 'te
 export const modeloTrabalho = pgEnum('modelo_trabalho', ['presencial', 'hibrido', 'remoto']);
 export const statusFuncionario = pgEnum('status_funcionario', ['ativo', 'ferias', 'afastado', 'desligado']);
 export const tipoEscala = pgEnum('tipo_escala', ['12x36', '5x2', '6x1', 'personalizada']);
+/**
+ * Papel que uma escala representa dentro do rodízio de uma equipe.
+ *
+ * Uma pessoa pode estar vinculada a mais de uma escala ao mesmo tempo — é
+ * assim que "trabalha de dia e ainda carrega o plantão" nasce: uma escala
+ * `trabalho` mais uma `plantao`, em vez de um código híbrido só para isso.
+ */
+export const papelEscala = pgEnum('papel_escala', ['trabalho', 'plantao', 'backup']);
 export const tipoPlantao = pgEnum('tipo_plantao', ['diurno', 'noturno', 'comercial', 'sobreaviso', 'especial']);
 export const statusPlantao = pgEnum('status_plantao', ['previsto', 'confirmado', 'trocado', 'ausente']);
 export const statusSolicitacao = pgEnum('status_solicitacao', [
@@ -375,18 +383,50 @@ export const escalas = pgTable('escalas', {
   nome: text('nome').notNull(),
   tipo: tipoEscala('tipo').notNull(),
   descricao: text('descricao').notNull().default(''),
+  /**
+   * Dona do rodízio. Nula nas escalas antigas, globais, que não pertencem a
+   * uma equipe específica — uma escala nova sempre aponta para uma.
+   */
+  equipe_id: varchar('equipe_id', { length: 40 }).references(() => equipes.id, { onDelete: 'cascade' }),
+  /**
+   * Duração do rodízio, em semanas, antes de repetir. `1` é o caso comum
+   * (mesmo padrão toda semana — cobre 5×2, 6×1 e personalizada). `2` já
+   * cobre 12×36: é o menor número de semanas cheias em que um rodízio de
+   * 2 dias corridos volta a cair no mesmo dia da semana.
+   */
+  ciclo_semanas: smallint('ciclo_semanas').notNull().default(1),
+  /** Que papel esta escala cumpre no rodízio da equipe. */
+  papel: papelEscala('papel').notNull().default('trabalho'),
   ativo: boolean('ativo').notNull().default(true),
 });
 
-export const escalaDetalhes = pgTable('escala_detalhes', {
-  id: varchar('id', { length: 40 }).primaryKey(),
-  escala_id: varchar('escala_id', { length: 40 })
-    .notNull()
-    .references(() => escalas.id, { onDelete: 'cascade' }),
-  dia_semana: smallint('dia_semana').notNull(),
-  hora_inicio: horaMinuto('hora_inicio').notNull(),
-  hora_fim: horaMinuto('hora_fim').notNull(),
-});
+export const escalaDetalhes = pgTable(
+  'escala_detalhes',
+  {
+    id: varchar('id', { length: 40 }).primaryKey(),
+    escala_id: varchar('escala_id', { length: 40 })
+      .notNull()
+      .references(() => escalas.id, { onDelete: 'cascade' }),
+    /** 1-based: em qual semana do ciclo da escala este turno vale. */
+    semana_do_ciclo: smallint('semana_do_ciclo').notNull().default(1),
+    dia_semana: smallint('dia_semana').notNull(),
+    hora_inicio: horaMinuto('hora_inicio').notNull(),
+    hora_fim: horaMinuto('hora_fim').notNull(),
+    /** Tipo do plantão que este turno-modelo produz ao ser gerado. */
+    tipo: tipoPlantao('tipo').notNull(),
+  },
+  (t) => ({
+    // Mais de um turno no mesmo dia é o caso normal (ex.: comercial de dia +
+    // sobreaviso à noite, na mesma escala) — o que não pode repetir é o
+    // mesmo horário de início duas vezes no mesmo turno da semana.
+    turnoUnico: uniqueIndex('escala_detalhes_turno_idx').on(
+      t.escala_id,
+      t.semana_do_ciclo,
+      t.dia_semana,
+      t.hora_inicio,
+    ),
+  }),
+);
 
 export const escalaFuncionarios = pgTable('escala_funcionarios', {
   id: varchar('id', { length: 40 }).primaryKey(),
@@ -396,6 +436,12 @@ export const escalaFuncionarios = pgTable('escala_funcionarios', {
   escala_id: varchar('escala_id', { length: 40 })
     .notNull()
     .references(() => escalas.id, { onDelete: 'cascade' }),
+  /**
+   * Data que corresponde à semana 1, dia 1 do ciclo — para esta pessoa.
+   * É o que permite duas pessoas compartilharem a mesma escala revezando em
+   * dias opostos: mesma `escala_id`, âncora com 1 dia de diferença.
+   */
+  ancora_em: date('ancora_em').notNull(),
   data_inicio: date('data_inicio').notNull(),
   data_fim: date('data_fim').notNull(),
 });
@@ -413,6 +459,12 @@ export const plantoes = pgTable(
     hora_fim: horaMinuto('hora_fim').notNull(),
     tipo: tipoPlantao('tipo').notNull(),
     status: statusPlantao('status').notNull().default('previsto'),
+    /**
+     * Marca quem criou a linha: o motor de geração, não uma pessoa. É o que
+     * deixa uma nova rodada de geração pular um dia que o RH já ajustou à
+     * mão, em vez de sobrescrever sem avisar.
+     */
+    gerado_automaticamente: boolean('gerado_automaticamente').notNull().default(false),
   },
   (t) => ({
     // O calendário sempre consulta por intervalo de datas.
@@ -690,6 +742,35 @@ export const oidcEstados = pgTable('oidc_estados', {
   destino: text('destino').notNull().default('/'),
   criado_em: isoTimestamp('criado_em').notNull(),
 });
+
+/* ---------------------------------------------------------------- automação */
+
+/**
+ * Chaves de API para automação externa (n8n e afins).
+ *
+ * Só abrem as rotas de leitura em `/api/n8n/*` — pensadas para consumo por
+ * outro serviço, sem interação humana e sem cookie de sessão. Diferente da
+ * senha de gente, o token nasce com alta entropia, então o banco guarda só o
+ * hash SHA-256 (ver `auth/chaveApi.ts`); não há por que passar por uma KDF
+ * lenta como o scrypt das senhas.
+ */
+export const chavesApi = pgTable(
+  'chaves_api',
+  {
+    id: varchar('id', { length: 40 }).primaryKey(),
+    nome: text('nome').notNull(),
+    /** Primeiros caracteres do token, só para identificar a chave numa listagem. */
+    prefixo: varchar('prefixo', { length: 24 }).notNull(),
+    chave_hash: varchar('chave_hash', { length: 64 }).notNull(),
+    ativo: boolean('ativo').notNull().default(true),
+    criado_em: isoTimestamp('criado_em').notNull(),
+    /** Nulo quando criada por script de linha de comando, fora de uma sessão. */
+    criado_por: varchar('criado_por', { length: 40 }),
+    expira_em: isoTimestamp('expira_em'),
+    ultimo_uso_em: isoTimestamp('ultimo_uso_em'),
+  },
+  (t) => ({ hashUnico: uniqueIndex('chaves_api_hash_idx').on(t.chave_hash) }),
+);
 
 /** Todas as tabelas de negócio, na ordem segura de inserção do seed. */
 export const tabelasNaOrdem = [

@@ -13,6 +13,7 @@ import type {
   StatusContrato,
   TipoContato,
   NivelAcesso,
+  PapelEscala,
   StatusFuncionario,
   StatusPlantao,
   StatusSolicitacao,
@@ -85,6 +86,12 @@ export const TIPO_PLANTAO: Record<TipoPlantao, string> = {
   comercial: 'Comercial',
   sobreaviso: 'Sobreaviso',
   especial: 'Especial',
+};
+
+export const PAPEL_ESCALA: Record<PapelEscala, string> = {
+  trabalho: 'Trabalho',
+  plantao: 'Plantão',
+  backup: 'Backup de plantão',
 };
 
 export const STATUS_PLANTAO: Record<StatusPlantao, string> = {
@@ -223,6 +230,12 @@ export const CLASSE_TIPO_PLANTAO: Record<TipoPlantao, string> = {
   comercial: 'bg-primary/15 text-primary border-primary/30',
   sobreaviso: 'bg-brand-coral/15 text-brand-coral border-brand-coral/30',
   especial: 'bg-success/15 text-success-strong border-success/30',
+};
+
+export const CLASSE_PAPEL_ESCALA: Record<PapelEscala, string> = {
+  trabalho: 'bg-primary/15 text-primary border-primary/30',
+  plantao: 'bg-brand-coral/15 text-brand-coral border-brand-coral/30',
+  backup: 'bg-warning/15 text-warning-strong border-warning/30',
 };
 
 export const CLASSE_TIPO_PENDENCIA: Record<TipoPendencia, string> = {

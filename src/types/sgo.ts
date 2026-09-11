@@ -223,27 +223,54 @@ export interface Funcionario {
 
 export type TipoEscala = '12x36' | '5x2' | '6x1' | 'personalizada';
 
+/**
+ * Papel que uma escala representa dentro do rodízio de uma equipe. Uma
+ * pessoa pode estar vinculada a mais de uma escala ao mesmo tempo — é assim
+ * que "trabalha de dia e ainda carrega o plantão" nasce: uma escala
+ * `trabalho` mais uma `plantao`, em vez de um código híbrido para isso.
+ */
+export type PapelEscala = 'trabalho' | 'plantao' | 'backup';
+
 export interface Escala {
   id: string;
   nome: string;
   tipo: TipoEscala;
   descricao: string;
+  /** Nula nas escalas antigas, globais; uma escala nova sempre pertence a uma equipe. */
+  equipe_id?: string | null;
+  /**
+   * Duração do rodízio, em semanas, antes de repetir. `1` cobre 5×2, 6×1 e
+   * personalizada; `2` já cobre 12×36 (menor ciclo de semanas cheias em que
+   * um rodízio de 2 dias corridos volta a cair no mesmo dia da semana).
+   */
+  ciclo_semanas: number;
+  papel: PapelEscala;
   ativo: boolean;
 }
 
 export interface EscalaDetalhe {
   id: string;
   escala_id: string;
+  /** 1-based: em qual semana do ciclo da escala este turno vale. */
+  semana_do_ciclo: number;
   /** 0 = domingo … 6 = sábado. */
   dia_semana: number;
   hora_inicio: HoraMinuto;
   hora_fim: HoraMinuto;
+  /** Tipo do plantão que este turno-modelo produz ao ser gerado. */
+  tipo: TipoPlantao;
 }
 
 export interface EscalaFuncionario {
   id: string;
   funcionario_id: string;
   escala_id: string;
+  /**
+   * Data que corresponde à semana 1, dia 1 do ciclo — para esta pessoa.
+   * Permite duas pessoas compartilharem a mesma escala revezando em dias
+   * opostos: mesma `escala_id`, âncora com 1 dia de diferença.
+   */
+  ancora_em: IsoDate;
   data_inicio: IsoDate;
   data_fim: IsoDate;
 }
@@ -265,6 +292,8 @@ export interface Plantao {
   hora_fim: HoraMinuto;
   tipo: TipoPlantao;
   status: StatusPlantao;
+  /** Criado pelo motor de geração, não por uma pessoa — ver `geracaoPlantoes.ts`. */
+  gerado_automaticamente: boolean;
 }
 
 /* ------------------------------------------------------------ solicitações */

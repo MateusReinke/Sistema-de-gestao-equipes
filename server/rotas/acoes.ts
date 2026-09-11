@@ -6,14 +6,17 @@
  * desligar alguém sem revogar o acesso, deixaria o sistema em estado
  * inconsistente.
  */
-import { and, eq, gte } from 'drizzle-orm';
+import { and, eq, gte, inArray, ne } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../db/index';
 import * as t from '../db/schema';
 import { novoId, registrar } from '../auditoria';
 import { ehRh, exigir, alcancaFuncionario } from '../auth/permissoes';
 import { exigirSessao } from './auth';
+import { plantoesGerados } from '@/lib/geracaoPlantoes';
 import { hoje } from '@/lib/date';
+
+const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Tabelas por tipo de solicitação, como a Central de Aprovações as trata. */
 const TABELA = {
@@ -104,6 +107,9 @@ export function rotasAcoes(app: FastifyInstance): void {
             id: novoId('p'),
             funcionario_id: troca.substituto_id,
             status: 'confirmado',
+            // Nasceu da aprovação da troca, não do motor de rodízio: uma
+            // geração futura não deve mexer nela.
+            gerado_automaticamente: false,
           });
         }
       }
@@ -178,4 +184,135 @@ export function rotasAcoes(app: FastifyInstance): void {
       return reply.send({ ok: true });
     },
   );
+
+  /**
+   * Aplica o rodízio de uma equipe sobre um período: projeta o template de
+   * cada `escala_funcionarios` ativo e grava os plantões resultantes — o
+   * botão que substitui lançar plantão um por um.
+   *
+   * Nunca atropela um plantão lançado à mão (`gerado_automaticamente =
+   * false`) sem `sobrescrever`; um plantão que a própria geração criou antes
+   * é só atualizado, para uma segunda rodada no mesmo período não duplicar.
+   */
+  app.post<{
+    Params: { id: string };
+    Body: { de?: string; ate?: string; sobrescrever?: boolean };
+  }>('/api/equipes/:id/gerar-plantoes', async (req, reply) => {
+    const sessao = await exigirSessao(req);
+    exigir(ehRh(sessao), 'Só o RH e a administração geram plantões em lote.');
+
+    const [equipe] = await db.select().from(t.equipes).where(eq(t.equipes.id, req.params.id)).limit(1);
+    if (!equipe) return reply.code(404).send({ erro: 'Equipe não encontrada.' });
+
+    const de = req.body?.de ?? '';
+    const ate = req.body?.ate ?? '';
+    if (!DATA_ISO.test(de) || !DATA_ISO.test(ate) || de > ate) {
+      return reply.code(400).send({ erro: '"de" e "ate" precisam ser datas ISO válidas, com "de" não posterior a "ate".' });
+    }
+    const sobrescrever = req.body?.sobrescrever === true;
+
+    const funcionarios = await db
+      .select({ id: t.funcionarios.id })
+      .from(t.funcionarios)
+      .where(and(eq(t.funcionarios.equipe_id, equipe.id), ne(t.funcionarios.status, 'desligado')));
+    const funcionarioIds = funcionarios.map((f) => f.id);
+
+    if (funcionarioIds.length === 0) {
+      return reply.send({ criados: 0, atualizados: 0, pulados: 0 });
+    }
+
+    const vinculos = await db
+      .select()
+      .from(t.escalaFuncionarios)
+      .where(inArray(t.escalaFuncionarios.funcionario_id, funcionarioIds));
+
+    const escalaIds = [...new Set(vinculos.map((v) => v.escala_id))];
+    const [escalas, detalhes] = escalaIds.length
+      ? await Promise.all([
+          db.select().from(t.escalas).where(inArray(t.escalas.id, escalaIds)),
+          db.select().from(t.escalaDetalhes).where(inArray(t.escalaDetalhes.escala_id, escalaIds)),
+        ])
+      : [[], []];
+
+    const escalaPorId = new Map(escalas.map((e) => [e.id, e]));
+    const detalhesPorEscala = new Map<string, typeof detalhes>();
+    for (const d of detalhes) {
+      const lista = detalhesPorEscala.get(d.escala_id) ?? [];
+      lista.push(d);
+      detalhesPorEscala.set(d.escala_id, lista);
+    }
+
+    let criados = 0;
+    let atualizados = 0;
+    let pulados = 0;
+
+    await db.transaction(async (tx) => {
+      for (const vinculo of vinculos) {
+        const escala = escalaPorId.get(vinculo.escala_id);
+        if (!escala || !escala.ativo) continue;
+
+        const candidatos = plantoesGerados(
+          vinculo,
+          detalhesPorEscala.get(escala.id) ?? [],
+          escala.ciclo_semanas,
+          de,
+          ate,
+        );
+
+        for (const candidato of candidatos) {
+          const [existente] = await tx
+            .select({ id: t.plantoes.id, gerado_automaticamente: t.plantoes.gerado_automaticamente })
+            .from(t.plantoes)
+            .where(
+              and(
+                eq(t.plantoes.funcionario_id, candidato.funcionario_id),
+                eq(t.plantoes.data, candidato.data),
+                eq(t.plantoes.hora_inicio, candidato.hora_inicio),
+              ),
+            )
+            .limit(1);
+
+          if (existente) {
+            if (!existente.gerado_automaticamente && !sobrescrever) {
+              pulados++;
+              continue;
+            }
+            await tx
+              .update(t.plantoes)
+              .set({
+                hora_fim: candidato.hora_fim,
+                tipo: candidato.tipo,
+                escala_id: candidato.escala_id,
+                gerado_automaticamente: true,
+              })
+              .where(eq(t.plantoes.id, existente.id));
+            atualizados++;
+            continue;
+          }
+
+          await tx.insert(t.plantoes).values({
+            id: novoId('p'),
+            funcionario_id: candidato.funcionario_id,
+            escala_id: candidato.escala_id,
+            data: candidato.data,
+            hora_inicio: candidato.hora_inicio,
+            hora_fim: candidato.hora_fim,
+            tipo: candidato.tipo,
+            status: candidato.data < hoje() ? 'confirmado' : 'previsto',
+            gerado_automaticamente: true,
+          });
+          criados++;
+        }
+      }
+    });
+
+    await registrar(sessao, {
+      acao: 'criou',
+      entidade: 'Plantão (geração em lote)',
+      entidade_id: equipe.id,
+      descricao: `${equipe.nome}: ${criados} criados, ${atualizados} atualizados, ${pulados} pulados (${de} a ${ate})`,
+    });
+
+    return reply.send({ criados, atualizados, pulados });
+  });
 }

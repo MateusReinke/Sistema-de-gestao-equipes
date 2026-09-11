@@ -15,6 +15,20 @@
       "when": 1788268315809,
       "tag": "0001_safe_the_initiative",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788932751222,
+      "tag": "0002_salty_dexter_bennett",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789075305169,
+      "tag": "0003_flat_steve_rogers",
+      "breakpoints": true
     }
   ]
 }
