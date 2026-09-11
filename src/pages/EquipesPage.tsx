@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Pencil, Plus, Search, UsersRound } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { CalendarRange, Pencil, Plus, Search, UsersRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,7 @@ export default function EquipesPage() {
     salvarEquipe,
   } = useDados();
   const { podeGerenciar, equipesVisiveis } = useAuth();
+  const navegar = useNavigate();
 
   const [busca, setBusca] = useState('');
   const [emEdicao, setEmEdicao] = useState<Equipe | null>(null);
@@ -131,7 +133,21 @@ export default function EquipesPage() {
             const furo = descobertas.get(eq.id);
 
             return (
-              <Card key={eq.id} className={`shadow-card ${!eq.ativo ? 'opacity-60' : ''}`}>
+              <Card
+                key={eq.id}
+                role="link"
+                tabIndex={0}
+                onClick={() => navegar(`/equipes/${eq.id}/escala`)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    navegar(`/equipes/${eq.id}/escala`);
+                  }
+                }}
+                className={`cursor-pointer shadow-card transition-shadow hover:shadow-raised ${
+                  !eq.ativo ? 'opacity-60' : ''
+                }`}
+              >
                 <CardHeader className="flex flex-row items-start justify-between gap-2 pb-3">
                   <div className="min-w-0">
                     <CardTitle className="truncate text-base">{eq.nome}</CardTitle>
@@ -154,7 +170,9 @@ export default function EquipesPage() {
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7"
-                        onClick={() => {
+                        // O card inteiro abre a escala; editar é a exceção.
+                        onClick={(e) => {
+                          e.stopPropagation();
                           setEmEdicao({ ...eq });
                           setEhNova(false);
                         }}
@@ -236,6 +254,11 @@ export default function EquipesPage() {
                       </div>
                     </div>
                   )}
+
+                  <div className="flex items-center gap-1.5 border-t pt-2.5 text-xs font-medium text-primary">
+                    <CalendarRange className="h-3.5 w-3.5" />
+                    Ver calendário da escala
+                  </div>
                 </CardContent>
               </Card>
             );

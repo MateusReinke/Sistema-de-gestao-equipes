@@ -245,6 +245,19 @@ export interface Escala {
    */
   ciclo_semanas: number;
   papel: PapelEscala;
+
+  /**
+   * Horário fica aqui, não em cada célula do ciclo: a grade diz *o que* a
+   * pessoa faz no dia, a escala diz *a que horas* — como o horário contratual
+   * de uma linha de planilha.
+   */
+  turno_tipo: TipoPlantao;
+  turno_inicio: HoraMinuto;
+  turno_fim: HoraMinuto;
+  /** Janela em que quem está de plantão ou de backup pode ser acionado. */
+  sobreaviso_inicio: HoraMinuto;
+  sobreaviso_fim: HoraMinuto;
+
   ativo: boolean;
 }
 
@@ -275,7 +288,17 @@ export interface EscalaFuncionario {
   data_fim: IsoDate;
 }
 
-export type TipoPlantao = 'diurno' | 'noturno' | 'comercial' | 'sobreaviso' | 'especial';
+/**
+ * `sobreaviso` é a primeira linha de acionamento; `backup` é a segunda, que só
+ * entra se a primeira não atender — por isso backup não conta como cobertura.
+ */
+export type TipoPlantao =
+  | 'diurno'
+  | 'noturno'
+  | 'comercial'
+  | 'sobreaviso'
+  | 'backup'
+  | 'especial';
 
 /**
  * `trocado` marca o plantão de origem depois que uma troca é aprovada; o

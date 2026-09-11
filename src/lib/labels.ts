@@ -84,7 +84,8 @@ export const TIPO_PLANTAO: Record<TipoPlantao, string> = {
   diurno: 'Diurno',
   noturno: 'Noturno',
   comercial: 'Comercial',
-  sobreaviso: 'Sobreaviso',
+  sobreaviso: 'Plantão (sobreaviso)',
+  backup: 'Backup de plantão',
   especial: 'Especial',
 };
 
@@ -228,7 +229,8 @@ export const CLASSE_TIPO_PLANTAO: Record<TipoPlantao, string> = {
   diurno: 'bg-warning/15 text-warning-strong border-warning/30',
   noturno: 'bg-info/15 text-info-strong border-info/30',
   comercial: 'bg-primary/15 text-primary border-primary/30',
-  sobreaviso: 'bg-brand-coral/15 text-brand-coral border-brand-coral/30',
+  sobreaviso: 'bg-brand-blue/15 text-brand-blue border-brand-blue/30',
+  backup: 'bg-destructive/15 text-destructive border-destructive/30',
   especial: 'bg-success/15 text-success-strong border-success/30',
 };
 

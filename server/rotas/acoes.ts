@@ -315,4 +315,97 @@ export function rotasAcoes(app: FastifyInstance): void {
 
     return reply.send({ criados, atualizados, pulados });
   });
+
+  /**
+   * Substitui a grade do ciclo de uma escala inteira, de uma vez.
+   *
+   * A tela pinta a grade célula a célula — e uma célula pode virar duas linhas
+   * de turno (trabalho mais acionamento) ou nenhuma (folga). Fazer isso pelo
+   * CRUD genérico seria uma sequência de PUTs e DELETEs por clique, capaz de
+   * deixar a grade pela metade se uma delas falhasse. Aqui a grade chega
+   * inteira e é trocada numa transação só.
+   */
+  app.put<{
+    Params: { id: string };
+    Body: {
+      horarios?: {
+        turno_tipo?: string;
+        turno_inicio?: string;
+        turno_fim?: string;
+        sobreaviso_inicio?: string;
+        sobreaviso_fim?: string;
+      };
+      turnos?: {
+        semana_do_ciclo: number;
+        dia_semana: number;
+        hora_inicio: string;
+        hora_fim: string;
+        tipo: string;
+      }[];
+    };
+  }>('/api/escalas/:id/grade', async (req, reply) => {
+    const sessao = await exigirSessao(req);
+    exigir(ehRh(sessao), 'Só o RH e a administração alteram a grade de uma escala.');
+
+    const [escala] = await db.select().from(t.escalas).where(eq(t.escalas.id, req.params.id)).limit(1);
+    if (!escala) return reply.code(404).send({ erro: 'Escala não encontrada.' });
+
+    const turnos = req.body?.turnos ?? [];
+    const horarios = req.body?.horarios;
+
+    // A grade cobre só o ciclo declarado: aceitar uma semana 4 numa escala de
+    // 3 semanas gravaria turno que nunca seria gerado.
+    const foraDoCiclo = turnos.find(
+      (t) => t.semana_do_ciclo < 1 || t.semana_do_ciclo > escala.ciclo_semanas,
+    );
+    if (foraDoCiclo) {
+      return reply.code(400).send({
+        erro: `Semana ${foraDoCiclo.semana_do_ciclo} está fora do ciclo de ${escala.ciclo_semanas} semana(s).`,
+      });
+    }
+    const foraDaSemana = turnos.find((t) => t.dia_semana < 0 || t.dia_semana > 6);
+    if (foraDaSemana) {
+      return reply.code(400).send({ erro: 'Dia da semana precisa estar entre 0 (domingo) e 6 (sábado).' });
+    }
+
+    await db.transaction(async (tx) => {
+      if (horarios) {
+        await tx
+          .update(t.escalas)
+          .set({
+            turno_tipo: (horarios.turno_tipo ?? escala.turno_tipo) as typeof escala.turno_tipo,
+            turno_inicio: horarios.turno_inicio ?? escala.turno_inicio,
+            turno_fim: horarios.turno_fim ?? escala.turno_fim,
+            sobreaviso_inicio: horarios.sobreaviso_inicio ?? escala.sobreaviso_inicio,
+            sobreaviso_fim: horarios.sobreaviso_fim ?? escala.sobreaviso_fim,
+          })
+          .where(eq(t.escalas.id, escala.id));
+      }
+
+      await tx.delete(t.escalaDetalhes).where(eq(t.escalaDetalhes.escala_id, escala.id));
+
+      if (turnos.length > 0) {
+        await tx.insert(t.escalaDetalhes).values(
+          turnos.map((turno) => ({
+            id: novoId('ed'),
+            escala_id: escala.id,
+            semana_do_ciclo: turno.semana_do_ciclo,
+            dia_semana: turno.dia_semana,
+            hora_inicio: turno.hora_inicio,
+            hora_fim: turno.hora_fim,
+            tipo: turno.tipo as typeof escala.turno_tipo,
+          })),
+        );
+      }
+    });
+
+    await registrar(sessao, {
+      acao: 'atualizou',
+      entidade: 'Escala',
+      entidade_id: escala.id,
+      descricao: `Grade de ${escala.nome} redefinida com ${turnos.length} turno(s)`,
+    });
+
+    return reply.send({ turnos: turnos.length });
+  });
 }

@@ -72,7 +72,19 @@ export const tipoEscala = pgEnum('tipo_escala', ['12x36', '5x2', '6x1', 'persona
  * `trabalho` mais uma `plantao`, em vez de um código híbrido só para isso.
  */
 export const papelEscala = pgEnum('papel_escala', ['trabalho', 'plantao', 'backup']);
-export const tipoPlantao = pgEnum('tipo_plantao', ['diurno', 'noturno', 'comercial', 'sobreaviso', 'especial']);
+/**
+ * `sobreaviso` é a primeira linha de acionamento; `backup` é a segunda, que só
+ * entra se a primeira não atender. Separar os dois é o que permite dizer, num
+ * dia qualquer, quem atende e quem cobre — e não contar backup como cobertura.
+ */
+export const tipoPlantao = pgEnum('tipo_plantao', [
+  'diurno',
+  'noturno',
+  'comercial',
+  'sobreaviso',
+  'backup',
+  'especial',
+]);
 export const statusPlantao = pgEnum('status_plantao', ['previsto', 'confirmado', 'trocado', 'ausente']);
 export const statusSolicitacao = pgEnum('status_solicitacao', [
   'pendente',
@@ -397,6 +409,22 @@ export const escalas = pgTable('escalas', {
   ciclo_semanas: smallint('ciclo_semanas').notNull().default(1),
   /** Que papel esta escala cumpre no rodízio da equipe. */
   papel: papelEscala('papel').notNull().default('trabalho'),
+
+  /*
+   * Horário fica na escala, não em cada célula do ciclo.
+   *
+   * A grade do ciclo guarda só *o que* a pessoa faz no dia (trabalha, está de
+   * plantão, é backup); *a que horas* é sempre o mesmo par dentro da escala —
+   * como o "horário contratual" de uma linha da planilha. Sem isso, montar um
+   * ciclo de 3 semanas exigia repetir o mesmo início e fim 21 vezes.
+   */
+  turno_tipo: tipoPlantao('turno_tipo').notNull().default('comercial'),
+  turno_inicio: horaMinuto('turno_inicio').notNull().default('08:00'),
+  turno_fim: horaMinuto('turno_fim').notNull().default('17:00'),
+  /** Janela em que quem está de plantão ou de backup pode ser acionado. */
+  sobreaviso_inicio: horaMinuto('sobreaviso_inicio').notNull().default('00:00'),
+  sobreaviso_fim: horaMinuto('sobreaviso_fim').notNull().default('23:59'),
+
   ativo: boolean('ativo').notNull().default(true),
 });
 

@@ -37,6 +37,7 @@ import type {
 } from '@/types/sgo';
 import { ErroApi, api } from '@/data/api';
 import { useAuth } from '@/contexts/AuthContext';
+import type { HorariosEscala } from '@/lib/estadosDia';
 
 export interface BaseDados {
   /** Intervalo de datas dos plantões carregados. */
@@ -152,6 +153,12 @@ interface ContextoDados extends BaseDados {
     ate: string,
     sobrescrever?: boolean,
   ) => Promise<{ criados: number; atualizados: number; pulados: number }>;
+  /** Troca a grade do ciclo inteira de uma vez — ver `/api/escalas/:id/grade`. */
+  salvarGradeEscala: (
+    escalaId: string,
+    horarios: HorariosEscala,
+    turnos: Omit<EscalaDetalhe, 'id' | 'escala_id'>[],
+  ) => Promise<void>;
 
   decidir: (
     tipo: TipoPendencia,
@@ -255,6 +262,23 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
     [aoConcluir, aoFalhar],
   );
 
+  const salvarGradeEscala = useCallback(
+    async (
+      escalaId: string,
+      horarios: HorariosEscala,
+      turnos: Omit<EscalaDetalhe, 'id' | 'escala_id'>[],
+    ) => {
+      try {
+        await api.put(`/api/escalas/${escalaId}/grade`, { horarios, turnos });
+        aoConcluir();
+      } catch (erro) {
+        aoFalhar(erro);
+        throw erro;
+      }
+    },
+    [aoConcluir, aoFalhar],
+  );
+
   const desligarFuncionario = useCallback(
     async (id: string, data: string) => {
       try {
@@ -308,6 +332,7 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
       salvarPlantao: salvarEm('plantoes'),
       removerPlantao: removerDe('plantoes'),
       gerarPlantoesEquipe,
+      salvarGradeEscala,
 
       decidir,
     }),
@@ -320,6 +345,7 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
       decidir,
       desligarFuncionario,
       gerarPlantoesEquipe,
+      salvarGradeEscala,
     ],
   );
 

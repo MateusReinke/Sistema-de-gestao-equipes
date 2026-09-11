@@ -23,6 +23,7 @@ import NotFound from '@/pages/NotFound';
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const FuncionariosPage = lazy(() => import('@/pages/FuncionariosPage'));
 const EquipesPage = lazy(() => import('@/pages/EquipesPage'));
+const EscalaEquipePage = lazy(() => import('@/pages/EscalaEquipePage'));
 const GestoresPage = lazy(() => import('@/pages/GestoresPage'));
 const ClientesPage = lazy(() => import('@/pages/ClientesPage'));
 const EscalasPage = lazy(() => import('@/pages/EscalasPage'));
@@ -101,6 +102,10 @@ function Rotas() {
       <Route path="/" element={<Protegida><DashboardPage /></Protegida>} />
       <Route path="/funcionarios" element={<Protegida papeis={GESTAO}><FuncionariosPage /></Protegida>} />
       <Route path="/equipes" element={<Protegida papeis={GESTAO}><EquipesPage /></Protegida>} />
+      <Route
+        path="/equipes/:id/escala"
+        element={<Protegida papeis={GESTAO}><EscalaEquipePage /></Protegida>}
+      />
       <Route path="/gestores" element={<Protegida papeis={RH}><GestoresPage /></Protegida>} />
       <Route path="/clientes" element={<Protegida papeis={GESTAO}><ClientesPage /></Protegida>} />
       <Route path="/escalas" element={<Protegida papeis={GESTAO}><EscalasPage /></Protegida>} />

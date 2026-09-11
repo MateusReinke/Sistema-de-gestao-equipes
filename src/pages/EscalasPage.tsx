@@ -11,7 +11,6 @@ import {
   ShieldHalf,
   SlidersHorizontal,
   Trash2,
-  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
@@ -33,6 +32,15 @@ import { useAuth } from '@/contexts/AuthContext';
 import { DIAS_SEMANA, diaDaSemana, duracaoTurnoHoras, formatarData, hoje, somarDias } from '@/lib/date';
 import { PAPEL_ESCALA, TIPO_ESCALA, TIPO_PLANTAO } from '@/lib/labels';
 import { gerarRevezamentoDiario, gerarRodizioComBackup } from '@/lib/composicaoEscalas';
+import {
+  ESTADO_DIA,
+  ESTADOS_DIA,
+  detalhesDoEstado,
+  gradeDeDetalhes,
+  horariosDeDetalhes,
+  type EstadoDia,
+  type HorariosEscala,
+} from '@/lib/estadosDia';
 import type {
   Equipe,
   Escala,
@@ -44,137 +52,252 @@ import type {
   TipoPlantao,
 } from '@/types/sgo';
 
-/** Grade semana do ciclo × dia da semana: mostra e edita os turnos-modelo da escala. */
-function GradeTurnos({
+/**
+ * Grade do ciclo — semana × dia da semana — pintada com o estado de cada dia.
+ *
+ * Substitui o formulário de "adicionar turno" (semana, dia, tipo, início, fim,
+ * um de cada vez): monta-se um ciclo de 3 semanas clicando 21 vezes, e não
+ * preenchendo 21 formulários. O horário fica no cabeçalho, definido uma vez
+ * para a escala inteira — é o mesmo arranjo da planilha, onde a célula guarda
+ * só o código do dia e a hora vem do contrato da pessoa.
+ */
+function GradeCiclo({
   escala,
   detalhes,
-  salvar,
-  remover,
+  salvarGrade,
 }: {
   escala: Escala;
   detalhes: EscalaDetalhe[];
-  salvar: (d: EscalaDetalhe) => Promise<void>;
-  remover: (id: string) => Promise<void>;
+  salvarGrade: (
+    horarios: HorariosEscala,
+    turnos: Omit<EscalaDetalhe, 'id' | 'escala_id'>[],
+  ) => Promise<void>;
 }) {
-  const [semana, setSemana] = useState('1');
-  const [diaSemana, setDiaSemana] = useState('1');
-  const [horaInicio, setHoraInicio] = useState('08:00');
-  const [horaFim, setHoraFim] = useState('17:00');
-  const [tipo, setTipo] = useState<TipoPlantao>('comercial');
+  const [horarios, setHorarios] = useState<HorariosEscala>(() =>
+    // Escala criada antes de o horário viver na escala continua abrindo com o
+    // que estiver gravado nos próprios turnos.
+    horariosDeDetalhes(detalhes, {
+      turno_tipo: escala.turno_tipo,
+      turno_inicio: escala.turno_inicio,
+      turno_fim: escala.turno_fim,
+      sobreaviso_inicio: escala.sobreaviso_inicio,
+      sobreaviso_fim: escala.sobreaviso_fim,
+    }),
+  );
+  const [grade, setGrade] = useState<EstadoDia[][]>(() =>
+    gradeDeDetalhes(detalhes, escala.ciclo_semanas),
+  );
+  const [pincel, setPincel] = useState<EstadoDia>('trabalho');
+  const [salvando, setSalvando] = useState(false);
 
-  const semanas = Array.from({ length: escala.ciclo_semanas }, (_, i) => i + 1);
-  const naCelula = (s: number, d: number) =>
-    detalhes
-      .filter((t) => t.semana_do_ciclo === s && t.dia_semana === d)
-      .sort((a, b) => a.hora_inicio.localeCompare(b.hora_inicio));
+  // O número de semanas é editado no formulário acima, então a grade se ajusta
+  // no próprio render — sem efeito colateral que apagaria o que já foi pintado.
+  const semanas: EstadoDia[][] = Array.from(
+    { length: escala.ciclo_semanas },
+    (_, i) => grade[i] ?? Array.from({ length: 7 }, () => 'folga' as EstadoDia),
+  );
 
-  const adicionar = async () => {
-    await salvar({
-      id: novoId('ed'),
-      escala_id: escala.id,
-      semana_do_ciclo: Number(semana),
-      dia_semana: Number(diaSemana),
-      hora_inicio: horaInicio,
-      hora_fim: horaFim,
-      tipo,
-    });
-    toast.success('Turno adicionado ao modelo.');
+  const pintar = (semana: number, dia: number) =>
+    setGrade(semanas.map((linha, i) => (i === semana ? linha.map((e, d) => (d === dia ? pincel : e)) : linha)));
+
+  const pintarSemana = (semana: number) =>
+    setGrade(semanas.map((linha, i) => (i === semana ? linha.map(() => pincel) : linha)));
+
+  const pintarDia = (dia: number) =>
+    setGrade(semanas.map((linha) => linha.map((e, d) => (d === dia ? pincel : e))));
+
+  const aplicarPreset = (preset: 'comercial' | 'limpar') =>
+    setGrade(
+      semanas.map(() =>
+        Array.from({ length: 7 }, (_, d) =>
+          preset === 'comercial' && d >= 1 && d <= 5 ? 'trabalho' : 'folga',
+        ),
+      ),
+    );
+
+  const salvar = async () => {
+    if (horarios.turno_inicio === horarios.turno_fim) {
+      return toast.error('Início e fim do turno não podem ser iguais.');
+    }
+    setSalvando(true);
+    try {
+      const turnos = semanas.flatMap((linha, i) =>
+        linha.flatMap((estado, dia) => detalhesDoEstado(estado, i + 1, dia, horarios)),
+      );
+      await salvarGrade(horarios, turnos);
+      toast.success('Grade salva.');
+    } catch {
+      // A mensagem de erro já apareceu via toast em useDados().
+    } finally {
+      setSalvando(false);
+    }
   };
+
+  const usaAcionamento = semanas.some((l) => l.some((e) => ESTADO_DIA[e].acionamento !== 'nenhum'));
+  const totalTrabalho = semanas.flat().filter((e) => ESTADO_DIA[e].trabalha).length;
+  const horasSemana =
+    (totalTrabalho * duracaoTurnoHoras(horarios.turno_inicio, horarios.turno_fim)) /
+    escala.ciclo_semanas;
 
   return (
     <div className="space-y-3">
+      {/* Horário: uma vez para a escala toda, não por célula. */}
+      <div className="space-y-2 rounded-lg border p-3">
+        <div className="grid grid-cols-3 gap-2">
+          <div className="space-y-1">
+            <Label className="text-xs">Turno</Label>
+            <Select
+              value={horarios.turno_tipo}
+              onValueChange={(v) => setHorarios({ ...horarios, turno_tipo: v as TipoPlantao })}
+            >
+              <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {(['comercial', 'diurno', 'noturno', 'especial'] as TipoPlantao[]).map((t) => (
+                  <SelectItem key={t} value={t}>{TIPO_PLANTAO[t]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Entra</Label>
+            <Input
+              className="h-8"
+              type="time"
+              value={horarios.turno_inicio}
+              onChange={(e) => setHorarios({ ...horarios, turno_inicio: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Sai</Label>
+            <Input
+              className="h-8"
+              type="time"
+              value={horarios.turno_fim}
+              onChange={(e) => setHorarios({ ...horarios, turno_fim: e.target.value })}
+            />
+          </div>
+        </div>
+
+        {usaAcionamento && (
+          <div className="grid grid-cols-3 gap-2">
+            <div className="flex items-end pb-1.5">
+              <p className="text-[11px] text-muted-foreground">Pode ser acionado das</p>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Início</Label>
+              <Input
+                className="h-8"
+                type="time"
+                value={horarios.sobreaviso_inicio}
+                onChange={(e) => setHorarios({ ...horarios, sobreaviso_inicio: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Fim</Label>
+              <Input
+                className="h-8"
+                type="time"
+                value={horarios.sobreaviso_fim}
+                onChange={(e) => setHorarios({ ...horarios, sobreaviso_fim: e.target.value })}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Paleta: escolhe o estado e clica nas células. */}
+      <div className="space-y-1.5">
+        <p className="text-[11px] text-muted-foreground">
+          Escolha o que a pessoa faz no dia e clique nas células da grade.
+        </p>
+        <div className="flex flex-wrap gap-1">
+          {ESTADOS_DIA.map((estado) => {
+            const def = ESTADO_DIA[estado];
+            return (
+              <button
+                key={estado}
+                type="button"
+                onClick={() => setPincel(estado)}
+                title={def.descricao}
+                className={`rounded border px-2 py-1 text-[11px] font-medium transition-all ${def.classe} ${
+                  pincel === estado ? 'ring-2 ring-ring ring-offset-1 ring-offset-background' : 'opacity-75 hover:opacity-100'
+                }`}
+              >
+                {def.rotulo}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="overflow-x-auto rounded-lg border">
         <table className="w-full text-xs">
           <thead>
             <tr className="bg-muted">
               <th className="p-1.5 text-left font-medium text-muted-foreground">Sem.</th>
-              {DIAS_SEMANA.map((d) => (
-                <th key={d} className="p-1.5 text-center font-medium text-muted-foreground">
-                  {d}
+              {DIAS_SEMANA.map((d, i) => (
+                <th key={d} className="p-0 text-center font-medium text-muted-foreground">
+                  <button
+                    type="button"
+                    onClick={() => pintarDia(i)}
+                    title={`Aplicar "${ESTADO_DIA[pincel].rotulo}" em toda coluna`}
+                    className="w-full p-1.5 hover:bg-accent"
+                  >
+                    {d}
+                  </button>
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {semanas.map((s) => (
-              <tr key={s} className="border-t">
-                <td className="tabular p-1.5 text-muted-foreground">{s}</td>
-                {DIAS_SEMANA.map((_, d) => (
-                  <td key={d} className="p-1 align-top">
-                    <div className="flex flex-col gap-1">
-                      {naCelula(s, d).map((t) => (
-                        <span
-                          key={t.id}
-                          className="tabular flex items-center gap-1 rounded border bg-muted px-1 py-0.5 text-[10px]"
-                          title={`${t.hora_inicio}–${t.hora_fim} · ${TIPO_PLANTAO[t.tipo]}`}
-                        >
-                          {t.hora_inicio}
-                          <button
-                            type="button"
-                            onClick={() => remover(t.id)}
-                            className="text-muted-foreground hover:text-destructive"
-                          >
-                            <X className="h-2.5 w-2.5" />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                ))}
+            {semanas.map((linha, i) => (
+              <tr key={i} className="border-t">
+                <td className="p-0">
+                  <button
+                    type="button"
+                    onClick={() => pintarSemana(i)}
+                    title={`Aplicar "${ESTADO_DIA[pincel].rotulo}" na semana inteira`}
+                    className="tabular w-full p-1.5 text-left text-muted-foreground hover:bg-accent"
+                  >
+                    {i + 1}
+                  </button>
+                </td>
+                {linha.map((estado, dia) => {
+                  const def = ESTADO_DIA[estado];
+                  return (
+                    <td key={dia} className="p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => pintar(i, dia)}
+                        title={`${def.rotulo} — ${def.descricao}`}
+                        className={`w-full rounded border px-1 py-1.5 text-[10px] font-medium transition-colors hover:brightness-110 ${def.classe}`}
+                      >
+                        {def.codigo}
+                      </button>
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 rounded-lg border p-3 sm:grid-cols-3">
-        <div className="space-y-1">
-          <Label className="text-xs">Semana</Label>
-          <Select value={semana} onValueChange={setSemana}>
-            <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {semanas.map((s) => (
-                <SelectItem key={s} value={String(s)}>{s}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Dia</Label>
-          <Select value={diaSemana} onValueChange={setDiaSemana}>
-            <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {DIAS_SEMANA.map((d, i) => (
-                <SelectItem key={d} value={String(i)}>{d}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Tipo</Label>
-          <Select value={tipo} onValueChange={(v) => setTipo(v as TipoPlantao)}>
-            <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {(Object.keys(TIPO_PLANTAO) as TipoPlantao[]).map((t) => (
-                <SelectItem key={t} value={t}>{TIPO_PLANTAO[t]}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Início</Label>
-          <Input className="h-8" type="time" value={horaInicio} onChange={(e) => setHoraInicio(e.target.value)} />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Fim</Label>
-          <Input className="h-8" type="time" value={horaFim} onChange={(e) => setHoraFim(e.target.value)} />
-        </div>
-        <div className="flex items-end">
-          <Button type="button" size="sm" className="h-8 w-full" onClick={adicionar}>
-            <Plus className="mr-1 h-3.5 w-3.5" /> Adicionar
-          </Button>
-        </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => aplicarPreset('comercial')}>
+          Seg a sex
+        </Button>
+        <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => aplicarPreset('limpar')}>
+          Limpar
+        </Button>
+        <span className="tabular ml-auto text-[11px] text-muted-foreground">
+          {Math.round(horasSemana * 10) / 10}h por semana
+        </span>
       </div>
+
+      <Button type="button" size="sm" className="w-full" disabled={salvando} onClick={salvar}>
+        {salvando ? 'Salvando...' : 'Salvar grade'}
+      </Button>
     </div>
   );
 }
@@ -367,6 +490,11 @@ function NovoRevezamentoDiario({
         equipe_id: equipeId,
         ciclo_semanas: 2,
         papel: 'trabalho',
+        turno_tipo: tipo,
+        turno_inicio: horaInicio,
+        turno_fim: horaFim,
+        sobreaviso_inicio: horaInicio,
+        sobreaviso_fim: horaFim,
         ativo: true,
       };
       const escalaA: Escala = base;
@@ -620,6 +748,12 @@ function NovoRodizioComBackup({
         equipe_id: equipeId,
         ciclo_semanas: cicloSemanas,
         papel: 'plantao',
+        // Aqui o turno é o próprio plantão: as duas janelas são a mesma.
+        turno_tipo: tipo,
+        turno_inicio: horaInicio,
+        turno_fim: horaFim,
+        sobreaviso_inicio: horaInicio,
+        sobreaviso_fim: horaFim,
         ativo: true,
       };
       await salvarEscala(escalaPrincipal);
@@ -657,8 +791,10 @@ function NovoRodizioComBackup({
       if (escalaBackup) {
         const idBackup = escalaBackup.id;
         tarefas.push(
+          // Mesma grade da principal, mas marcada como backup: é o que faz o
+          // calendário mostrar segunda linha e a cobertura não contá-la.
           ...rodizio.detalhes.map((d) =>
-            salvarEscalaDetalhe({ ...d, id: novoId('ed'), escala_id: idBackup }),
+            salvarEscalaDetalhe({ ...d, tipo: 'backup', id: novoId('ed'), escala_id: idBackup }),
           ),
           ...rodizio.vinculosBackup.map((v) =>
             salvarEscalaFuncionario({ ...v, id: novoId('ef'), escala_id: idBackup }),
@@ -867,9 +1003,9 @@ export default function EscalasPage() {
     equipes,
     salvarEscala,
     salvarEscalaDetalhe,
-    removerEscalaDetalhe,
     salvarEscalaFuncionario,
     removerEscalaFuncionario,
+    salvarGradeEscala,
   } = useDados();
   const { podeGerenciar } = useAuth();
 
@@ -895,6 +1031,11 @@ export default function EscalasPage() {
       descricao: '',
       ciclo_semanas: 1,
       papel: 'trabalho',
+      turno_tipo: 'comercial',
+      turno_inicio: '08:00',
+      turno_fim: '17:00',
+      sobreaviso_inicio: '00:00',
+      sobreaviso_fim: '23:59',
       ativo: true,
     });
     setEhNova(true);
@@ -1037,22 +1178,44 @@ export default function EscalasPage() {
                     </span>
                   </div>
 
+                  {/* O ciclo inteiro num relance — o mesmo desenho que o editor
+                      pinta, em miniatura. Lista de horários repetidos não dizia
+                      qual era o padrão. */}
                   <div>
-                    <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                      Turnos
-                    </p>
+                    <div className="mb-1.5 flex items-baseline justify-between gap-2">
+                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        Ciclo de {esc.ciclo_semanas} semana(s)
+                      </p>
+                      <span className="tabular text-[11px] text-muted-foreground">
+                        {esc.turno_inicio}–{esc.turno_fim}
+                      </span>
+                    </div>
                     {detalhes.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">Sem horários definidos.</p>
+                      <p className="text-xs text-muted-foreground">Grade ainda não montada.</p>
                     ) : (
-                      <div className="flex flex-wrap gap-1">
-                        {detalhes.map((d) => (
-                          <span
-                            key={d.id}
-                            className="tabular rounded border bg-muted px-2 py-0.5 text-[11px]"
-                          >
-                            {esc.ciclo_semanas > 1 && `S${d.semana_do_ciclo} `}
-                            {DIAS_SEMANA[d.dia_semana]} {d.hora_inicio}–{d.hora_fim}
-                          </span>
+                      <div className="space-y-0.5">
+                        <div className="grid grid-cols-7 gap-0.5">
+                          {DIAS_SEMANA.map((d) => (
+                            <span key={d} className="text-center text-[9px] text-muted-foreground">
+                              {d}
+                            </span>
+                          ))}
+                        </div>
+                        {gradeDeDetalhes(detalhes, esc.ciclo_semanas).map((linha, i) => (
+                          <div key={i} className="grid grid-cols-7 gap-0.5">
+                            {linha.map((estado, dia) => {
+                              const def = ESTADO_DIA[estado];
+                              return (
+                                <span
+                                  key={dia}
+                                  title={`Semana ${i + 1} · ${DIAS_SEMANA[dia]} · ${def.rotulo}`}
+                                  className={`rounded border py-0.5 text-center text-[9px] font-semibold ${def.classe}`}
+                                >
+                                  {def.codigoCurto}
+                                </span>
+                              );
+                            })}
+                          </div>
                         ))}
                       </div>
                     )}
@@ -1182,12 +1345,16 @@ export default function EscalasPage() {
               {!ehNova && (
                 <>
                   <div className="space-y-1.5 border-t pt-4">
-                    <Label>Turnos do ciclo</Label>
-                    <GradeTurnos
+                    <Label>O que acontece em cada dia do ciclo</Label>
+                    <GradeCiclo
+                      // Remontar ao trocar de escala: a grade tem estado local,
+                      // e reaproveitar o componente mostraria a grade anterior.
+                      key={emEdicao.id}
                       escala={emEdicao}
                       detalhes={escalaDetalhes.filter((d) => d.escala_id === emEdicao.id)}
-                      salvar={salvarEscalaDetalhe}
-                      remover={removerEscalaDetalhe}
+                      salvarGrade={(horarios, turnos) =>
+                        salvarGradeEscala(emEdicao.id, horarios, turnos)
+                      }
                     />
                   </div>
                   <div className="space-y-1.5 border-t pt-4">
