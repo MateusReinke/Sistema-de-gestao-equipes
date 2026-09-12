@@ -1,0 +1,1 @@
+ALTER TABLE "escalas" ADD COLUMN "inicio_em" date DEFAULT now() NOT NULL;

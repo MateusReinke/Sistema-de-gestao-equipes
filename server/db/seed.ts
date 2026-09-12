@@ -74,9 +74,9 @@ try {
   await inserir(t.atendimentoEquipes, dados.atendimentoEquipes, 'vínculos cliente-equipe');
   await inserir(t.avaliacoesCliente, dados.avaliacoesCliente, 'avaliações');
 
-  await inserir(t.escalas, dados.escalas, 'escalas');
-  await inserir(t.escalaDetalhes, dados.escalaDetalhes, 'turnos de escala');
-  await inserir(t.escalaFuncionarios, dados.escalaFuncionarios, 'vínculos de escala');
+  await inserir(t.tiposTurno, dados.tiposTurno, 'turnos da legenda');
+  await inserir(t.escalaPosicoes, dados.escalaPosicoes, 'posições de escala');
+  await inserir(t.escalaCelulas, dados.escalaCelulas, 'células do ciclo');
   await inserir(t.plantoes, dados.plantoes, 'plantões');
 
   await inserir(t.ferias, dados.ferias, 'registros de férias');

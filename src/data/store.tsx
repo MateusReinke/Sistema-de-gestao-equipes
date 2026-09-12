@@ -18,9 +18,9 @@ import type {
   ContatoCliente,
   Departamento,
   Equipe,
-  Escala,
-  EscalaDetalhe,
-  EscalaFuncionario,
+  EscalaCelula,
+  EscalaPosicao,
+  EscalaExcecao,
   EventoAuditoria,
   Ferias,
   Funcionario,
@@ -30,6 +30,7 @@ import type {
   ServicoContratado,
   Sistema,
   SolicitacaoAcesso,
+  TipoTurno,
   StatusSolicitacao,
   TipoPendencia,
   TrocaPlantao,
@@ -52,9 +53,10 @@ export interface BaseDados {
   equipes: Equipe[];
   funcionarios: Funcionario[];
   usuarios: Usuario[];
-  escalas: Escala[];
-  escalaDetalhes: EscalaDetalhe[];
-  escalaFuncionarios: EscalaFuncionario[];
+  tiposTurno: TipoTurno[];
+  escalaPosicoes: EscalaPosicao[];
+  escalaCelulas: EscalaCelula[];
+  escalaExcecoes: EscalaExcecao[];
   plantoes: Plantao[];
   ferias: Ferias[];
   ausencias: Ausencia[];
@@ -78,9 +80,10 @@ const BASE_VAZIA: BaseDados = {
   equipes: [],
   funcionarios: [],
   usuarios: [],
-  escalas: [],
-  escalaDetalhes: [],
-  escalaFuncionarios: [],
+  tiposTurno: [],
+  escalaPosicoes: [],
+  escalaCelulas: [],
+  escalaExcecoes: [],
   plantoes: [],
   ferias: [],
   ausencias: [],
@@ -119,11 +122,12 @@ interface ContextoDados extends BaseDados {
   desligarFuncionario: (id: string, data: string) => Promise<void>;
   salvarEquipe: (e: Equipe) => Promise<void>;
   salvarDepartamento: (d: Departamento) => Promise<void>;
-  salvarEscala: (e: Escala) => Promise<void>;
-  salvarEscalaDetalhe: (d: EscalaDetalhe) => Promise<void>;
-  removerEscalaDetalhe: (id: string) => Promise<void>;
-  salvarEscalaFuncionario: (v: EscalaFuncionario) => Promise<void>;
-  removerEscalaFuncionario: (id: string) => Promise<void>;
+  salvarTipoTurno: (t: TipoTurno) => Promise<void>;
+  removerTipoTurno: (id: string) => Promise<void>;
+  /** Turnos e vínculos caem junto (cascata); plantões já gerados ficam, órfãos. */
+  /** Ajuste de um dia solto, por cima do padrão do ciclo. */
+  salvarEscalaExcecao: (e: EscalaExcecao) => Promise<void>;
+  removerEscalaExcecao: (id: string) => Promise<void>;
   salvarSistema: (s: Sistema) => Promise<void>;
   salvarComunicado: (c: Comunicado) => Promise<void>;
   removerComunicado: (id: string) => Promise<void>;
@@ -151,7 +155,17 @@ interface ContextoDados extends BaseDados {
     de: string,
     ate: string,
     sobrescrever?: boolean,
-  ) => Promise<{ criados: number; atualizados: number; pulados: number }>;
+  ) => Promise<{ criados: number; atualizados: number; pulados: number; vagas: number }>;
+  salvarPosicao: (p: EscalaPosicao) => Promise<void>;
+  removerPosicao: (id: string) => Promise<void>;
+  /** Esvazia a grade de uma posição, mantendo a vaga de pé. */
+  removerCiclo: (posicaoId: string) => Promise<void>;
+  /** Troca o ciclo inteiro de uma posição — ver `/api/posicoes/:id/ciclo`. */
+  salvarCiclo: (
+    posicaoId: string,
+    inicioEm: string,
+    celulas: Omit<EscalaCelula, 'id' | 'posicao_id'>[],
+  ) => Promise<void>;
 
   decidir: (
     tipo: TipoPendencia,
@@ -241,12 +255,47 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
   const gerarPlantoesEquipe = useCallback(
     async (equipeId: string, de: string, ate: string, sobrescrever?: boolean) => {
       try {
-        const resultado = await api.post<{ criados: number; atualizados: number; pulados: number }>(
+        const resultado = await api.post<{
+          criados: number;
+          atualizados: number;
+          pulados: number;
+          vagas: number;
+        }>(
           `/api/equipes/${equipeId}/gerar-plantoes`,
           { de, ate, sobrescrever },
         );
         aoConcluir();
         return resultado;
+      } catch (erro) {
+        aoFalhar(erro);
+        throw erro;
+      }
+    },
+    [aoConcluir, aoFalhar],
+  );
+
+  const salvarCiclo = useCallback(
+    async (
+      posicaoId: string,
+      inicioEm: string,
+      celulas: Omit<EscalaCelula, 'id' | 'posicao_id'>[],
+    ) => {
+      try {
+        await api.put(`/api/posicoes/${posicaoId}/ciclo`, { inicio_em: inicioEm, celulas });
+        aoConcluir();
+      } catch (erro) {
+        aoFalhar(erro);
+        throw erro;
+      }
+    },
+    [aoConcluir, aoFalhar],
+  );
+
+  const removerCiclo = useCallback(
+    async (posicaoId: string) => {
+      try {
+        await api.remover(`/api/posicoes/${posicaoId}/ciclo`);
+        aoConcluir();
       } catch (erro) {
         aoFalhar(erro);
         throw erro;
@@ -280,11 +329,12 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
       desligarFuncionario,
       salvarEquipe: salvarEm('equipes'),
       salvarDepartamento: salvarEm('departamentos'),
-      salvarEscala: salvarEm('escalas'),
-      salvarEscalaDetalhe: salvarEm('escalaDetalhes'),
-      removerEscalaDetalhe: removerDe('escalaDetalhes'),
-      salvarEscalaFuncionario: salvarEm('escalaFuncionarios'),
-      removerEscalaFuncionario: removerDe('escalaFuncionarios'),
+      salvarPosicao: salvarEm('escalaPosicoes'),
+      removerPosicao: removerDe('escalaPosicoes'),
+      salvarTipoTurno: salvarEm('tiposTurno'),
+      removerTipoTurno: removerDe('tiposTurno'),
+      salvarEscalaExcecao: salvarEm('escalaExcecoes'),
+      removerEscalaExcecao: removerDe('escalaExcecoes'),
       salvarSistema: salvarEm('sistemas'),
       salvarComunicado: salvarEm('comunicados'),
       removerComunicado: removerDe('comunicados'),
@@ -308,6 +358,8 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
       salvarPlantao: salvarEm('plantoes'),
       removerPlantao: removerDe('plantoes'),
       gerarPlantoesEquipe,
+      salvarCiclo,
+      removerCiclo,
 
       decidir,
     }),
@@ -320,6 +372,8 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
       decidir,
       desligarFuncionario,
       gerarPlantoesEquipe,
+      salvarCiclo,
+      removerCiclo,
     ],
   );
 

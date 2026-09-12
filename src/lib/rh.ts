@@ -395,6 +395,9 @@ export function equipesSemCobertura(contexto: {
         (p) =>
           p.data === dia &&
           p.status !== 'trocado' &&
+          // Backup é segunda linha — só entra se quem está de plantão não
+          // atender. Contá-lo como cobertura esconderia o furo real.
+          p.tipo !== 'backup' &&
           !descobertos.has(p.id) &&
           equipePorFuncionario.get(p.funcionario_id) === equipe.id,
       ).length;

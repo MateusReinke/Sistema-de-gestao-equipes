@@ -15,10 +15,10 @@ plantões, férias, ausências e solicitações de acesso — com apoio direto a
 | --- | --- |
 | **Portal RH** | Indicadores do dia, alertas de furo de escala, férias em risco, aniversários, headcount por área e mural |
 | **Funcionários** | Cadastro completo (cargo, área, gestor, contrato, admissão), ficha com abas, desligamento e exportação |
-| **Equipes** | Time, gestor, contas atendidas e **cobertura mínima diária** |
+| **Equipes** | Time, gestor, contas atendidas, **cobertura mínima diária** e o **calendário mensal da escala** da equipe |
 | **Clientes** | Contrato e renovação, contatos, escalonamento próprio, equipes designadas, serviços contratados e satisfação |
 | **Gestores** | Quem lidera cada equipe, com liderados e fila de aprovação |
-| **Escalas** | Modelos 12×36, 5×2, 6×1 e personalizados, com carga semanal e vinculados |
+| **Escalas** | Grade do ciclo pintada dia a dia (trabalho, plantão, backup ou folga), com assistentes para revezamento 12×36 e sobreaviso rotativo |
 | **Plantões** | Calendário mensal, detalhe do dia, escalação avulsa e **troca de turno** |
 | **Aprovações** | Fila única para os quatro fluxos de solicitação |
 | **Férias** | Saldo, período aquisitivo/concessivo e validação de CLT |
@@ -46,6 +46,45 @@ Cada conta reúne, em cinco abas:
 A ficha aponta sozinha as **lacunas de cadastro** que travam a operação num
 incidente: conta sem contato principal, sem trilha de escalonamento, sem equipe
 designada ou sem gerente de conta.
+
+### Como a escala é montada
+
+Uma escala é um **ciclo de N semanas** e, em cada dia do ciclo, o que a pessoa
+faz — não uma lista de turnos com horário repetido em cada linha. O horário é
+definido uma vez, na escala; a grade guarda só o estado do dia:
+
+| Código | Estado | Trabalha | Acionamento |
+| --- | --- | --- | --- |
+| — | Folga | não | nenhum |
+| T.1 | Trabalho | sim | nenhum |
+| T.2 | Plantão | não | primeira linha |
+| T.3 | Backup de plantão | não | segunda linha |
+| T.4 | Trabalho + plantão | sim | primeira linha |
+| T.5 | Trabalho + backup | sim | segunda linha |
+
+Os estados compostos existem porque um dia acumula papéis: quem está de plantão
+normalmente também trabalha. Ao gravar, cada estado vira uma ou duas linhas de
+`escala_detalhes` (uma do turno, uma do acionamento) — o motor de geração
+(`src/lib/geracaoPlantoes.ts`) não precisa de código híbrido, e "trabalha de dia
+e carrega o plantão" também nasce de duas escalas independentes na mesma pessoa.
+
+Duas montagens saem prontas, porque são as mais fáceis de errar à mão:
+
+- **Revezamento 12×36** — informa-se quem trabalha num dia de referência e a
+  outra posição já fica definida para o dia seguinte. O par não se faz com
+  âncoras separadas por um dia: `dia_semana` é o dia real da semana e só a
+  *semana do ciclo* acompanha a âncora, então as duas metades usam templates
+  complementares e a mesma âncora (`src/lib/composicaoEscalas.ts`).
+- **Sobreaviso rotativo com backup** — uma lista ordenada de pessoas revezando
+  por semana, em que o backup gira junto: enquanto alguém está de plantão, a
+  **próxima da lista** é o backup, voltando à primeira ao fim da volta.
+
+Backup nunca conta como cobertura: é segunda linha, e contá-lo faria um dia
+descoberto parecer coberto.
+
+O calendário mensal de cada equipe (`Equipes → Ver calendário da escala`) é a
+projeção disso tudo, calculada na hora — a escala do mês que vem pode ser
+conferida antes de virar plantão no banco.
 
 ### Regras de negócio verificadas
 
@@ -457,6 +496,10 @@ src/
   lib/                   ⬅ compartilhado com o servidor
     date.ts              datas de calendário e turnos que viram a meia-noite
     rh.ts                regras de férias, cobertura e indicadores
+    estadosDia.ts        o que a pessoa faz no dia (T.1…T.5, folga)
+    geracaoPlantoes.ts   projeta o ciclo de uma escala sobre o calendário
+    composicaoEscalas.ts monta o par 12×36 e o rodízio com backup
+    projecaoEscala.ts    a grade mensal da equipe, calculada na hora
     clientes.ts          contrato, escalonamento e satisfação
     labels.ts            rótulos em pt-BR e cores por status
     export.ts            CSV para Excel brasileiro

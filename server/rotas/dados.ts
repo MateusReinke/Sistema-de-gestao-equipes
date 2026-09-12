@@ -55,9 +55,10 @@ export function rotasDados(app: FastifyInstance): void {
       departamentos,
       equipesTodas,
       funcionarios,
-      escalas,
-      escalaDetalhes,
-      escalaFuncionarios,
+      tiposTurno,
+      escalaPosicoes,
+      escalaCelulas,
+      escalaExcecoes,
       plantoes,
       ferias,
       ausencias,
@@ -71,9 +72,10 @@ export function rotasDados(app: FastifyInstance): void {
       // Nomes de colegas aparecem em escala e aprovação, então o cadastro
       // básico é visível a todos; o que é sensível vem nas coleções abaixo.
       db.select().from(t.funcionarios),
-      db.select().from(t.escalas),
-      db.select().from(t.escalaDetalhes),
-      db.select().from(t.escalaFuncionarios),
+      db.select().from(t.tiposTurno),
+      db.select().from(t.escalaPosicoes),
+      db.select().from(t.escalaCelulas),
+      db.select().from(t.escalaExcecoes),
       db
         .select()
         .from(t.plantoes)
@@ -133,9 +135,10 @@ export function rotasDados(app: FastifyInstance): void {
       servicosContratados,
       atendimentoEquipes,
       avaliacoesCliente,
-      escalas,
-      escalaDetalhes,
-      escalaFuncionarios,
+      tiposTurno,
+      escalaPosicoes,
+      escalaCelulas,
+      escalaExcecoes,
       plantoes,
       ferias,
       ausencias,

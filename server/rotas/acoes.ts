@@ -6,14 +6,15 @@
  * desligar alguém sem revogar o acesso, deixaria o sistema em estado
  * inconsistente.
  */
-import { and, eq, gte, inArray, ne } from 'drizzle-orm';
+import { and, eq, gte, inArray, lte, ne } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../db/index';
 import * as t from '../db/schema';
 import { novoId, registrar } from '../auditoria';
 import { ehRh, exigir, alcancaFuncionario } from '../auth/permissoes';
 import { exigirSessao } from './auth';
-import { plantoesGerados } from '@/lib/geracaoPlantoes';
+import { MAXIMO_SEMANAS, turnoDoDia } from '@/lib/cicloEscala';
+import { diasDoIntervalo } from '@/lib/projecaoEscala';
 import { hoje } from '@/lib/date';
 
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -211,97 +212,162 @@ export function rotasAcoes(app: FastifyInstance): void {
     }
     const sobrescrever = req.body?.sobrescrever === true;
 
-    const funcionarios = await db
-      .select({ id: t.funcionarios.id })
-      .from(t.funcionarios)
-      .where(and(eq(t.funcionarios.equipe_id, equipe.id), ne(t.funcionarios.status, 'desligado')));
-    const funcionarioIds = funcionarios.map((f) => f.id);
+    /*
+     * Tudo o que a conta precisa: as posições da equipe (grade + data inicial
+     * + quem ocupa), os ajustes de dia solto e a legenda. É o mesmo material
+     * que a tela usa — o que se vê no calendário é o que é gravado.
+     */
+    const [posicoes, tiposTurno] = await Promise.all([
+      db
+        .select()
+        .from(t.escalaPosicoes)
+        .where(and(eq(t.escalaPosicoes.equipe_id, equipe.id), eq(t.escalaPosicoes.ativo, true))),
+      db.select().from(t.tiposTurno).where(eq(t.tiposTurno.equipe_id, equipe.id)),
+    ]);
 
-    if (funcionarioIds.length === 0) {
-      return reply.send({ criados: 0, atualizados: 0, pulados: 0 });
+    if (posicoes.length === 0) {
+      return reply.send({ criados: 0, atualizados: 0, pulados: 0, vagas: 0 });
+    }
+    const posicaoIds = posicoes.map((p) => p.id);
+
+    const [celulas, excecoes] = await Promise.all([
+      db.select().from(t.escalaCelulas).where(inArray(t.escalaCelulas.posicao_id, posicaoIds)),
+      db
+        .select()
+        .from(t.escalaExcecoes)
+        .where(
+          and(
+            inArray(t.escalaExcecoes.posicao_id, posicaoIds),
+            gte(t.escalaExcecoes.data, de),
+            lte(t.escalaExcecoes.data, ate),
+          ),
+        ),
+    ]);
+
+    // Desligado não cobre nada: a vaga fica aberta e o dia vira brecha, que é
+    // o alerta que interessa — gerar plantão para quem saiu seria pior.
+    const ativos = new Set(
+      (
+        await db
+          .select({ id: t.funcionarios.id })
+          .from(t.funcionarios)
+          .where(ne(t.funcionarios.status, 'desligado'))
+      ).map((f) => f.id),
+    );
+
+    const turnoPorId = new Map(tiposTurno.map((x) => [x.id, x]));
+    const excecaoPorDia = new Map(excecoes.map((x) => [`${x.posicao_id}|${x.data}`, x]));
+
+    const celulasPorPosicao = new Map<string, typeof celulas>();
+    for (const celula of celulas) {
+      const lista = celulasPorPosicao.get(celula.posicao_id) ?? [];
+      lista.push(celula);
+      celulasPorPosicao.set(celula.posicao_id, lista);
     }
 
-    const vinculos = await db
-      .select()
-      .from(t.escalaFuncionarios)
-      .where(inArray(t.escalaFuncionarios.funcionario_id, funcionarioIds));
+    const dias = diasDoIntervalo(de, ate);
 
-    const escalaIds = [...new Set(vinculos.map((v) => v.escala_id))];
-    const [escalas, detalhes] = escalaIds.length
-      ? await Promise.all([
-          db.select().from(t.escalas).where(inArray(t.escalas.id, escalaIds)),
-          db.select().from(t.escalaDetalhes).where(inArray(t.escalaDetalhes.escala_id, escalaIds)),
-        ])
-      : [[], []];
-
-    const escalaPorId = new Map(escalas.map((e) => [e.id, e]));
-    const detalhesPorEscala = new Map<string, typeof detalhes>();
-    for (const d of detalhes) {
-      const lista = detalhesPorEscala.get(d.escala_id) ?? [];
-      lista.push(d);
-      detalhesPorEscala.set(d.escala_id, lista);
-    }
+    /** As janelas que um turno ocupa no dia: trabalho, acionamento, ou as duas. */
+    const janelasDoTurno = (turno: (typeof tiposTurno)[number]) =>
+      [
+        turno.trabalha
+          ? { inicio: turno.hora_inicio, fim: turno.hora_fim, tipo: turno.tipo_plantao }
+          : null,
+        turno.acionamento !== 'nenhum'
+          ? {
+              inicio: turno.acionamento_inicio,
+              fim: turno.acionamento_fim,
+              tipo: turno.acionamento === 'plantao' ? ('sobreaviso' as const) : ('backup' as const),
+            }
+          : null,
+      ].filter((j): j is NonNullable<typeof j> => j !== null);
 
     let criados = 0;
     let atualizados = 0;
     let pulados = 0;
+    /** Dias escalados que ficaram sem ninguém — a brecha, devolvida à tela. */
+    let vagas = 0;
+
+    /** O que a posição faz num dia, já com o ajuste manual por cima. */
+    const turnoDaPosicao = (posicao: (typeof posicoes)[number], data: string) => {
+      const excecao = excecaoPorDia.get(`${posicao.id}|${data}`);
+      if (excecao) return excecao.tipo_turno_id ? turnoPorId.get(excecao.tipo_turno_id) : undefined;
+
+      const grade = celulasPorPosicao.get(posicao.id) ?? [];
+      if (grade.length === 0) return undefined;
+      const id = turnoDoDia({ inicio_em: posicao.inicio_em, celulas: grade }, data);
+      return id ? turnoPorId.get(id) : undefined;
+    };
 
     await db.transaction(async (tx) => {
-      for (const vinculo of vinculos) {
-        const escala = escalaPorId.get(vinculo.escala_id);
-        if (!escala || !escala.ativo) continue;
+      for (const posicao of posicoes) {
+        const ocupante =
+          posicao.funcionario_id && ativos.has(posicao.funcionario_id)
+            ? posicao.funcionario_id
+            : null;
 
-        const candidatos = plantoesGerados(
-          vinculo,
-          detalhesPorEscala.get(escala.id) ?? [],
-          escala.ciclo_semanas,
-          de,
-          ate,
-        );
+        for (const data of dias) {
+          const turno = turnoDaPosicao(posicao, data);
+          if (!turno) continue;
 
-        for (const candidato of candidatos) {
-          const [existente] = await tx
-            .select({ id: t.plantoes.id, gerado_automaticamente: t.plantoes.gerado_automaticamente })
-            .from(t.plantoes)
-            .where(
-              and(
-                eq(t.plantoes.funcionario_id, candidato.funcionario_id),
-                eq(t.plantoes.data, candidato.data),
-                eq(t.plantoes.hora_inicio, candidato.hora_inicio),
-              ),
-            )
-            .limit(1);
+          const janelas = janelasDoTurno(turno);
+          if (janelas.length === 0) continue; // folga
 
-          if (existente) {
-            if (!existente.gerado_automaticamente && !sobrescrever) {
-              pulados++;
-              continue;
-            }
-            await tx
-              .update(t.plantoes)
-              .set({
-                hora_fim: candidato.hora_fim,
-                tipo: candidato.tipo,
-                escala_id: candidato.escala_id,
-                gerado_automaticamente: true,
-              })
-              .where(eq(t.plantoes.id, existente.id));
-            atualizados++;
+          if (!ocupante) {
+            // Vaga aberta: não há a quem atribuir o plantão. A escala segue
+            // dizendo que o dia existe — a tela da equipe é que mostra a
+            // brecha, e aqui só contamos para o resumo da geração.
+            vagas += 1;
             continue;
           }
 
-          await tx.insert(t.plantoes).values({
-            id: novoId('p'),
-            funcionario_id: candidato.funcionario_id,
-            escala_id: candidato.escala_id,
-            data: candidato.data,
-            hora_inicio: candidato.hora_inicio,
-            hora_fim: candidato.hora_fim,
-            tipo: candidato.tipo,
-            status: candidato.data < hoje() ? 'confirmado' : 'previsto',
-            gerado_automaticamente: true,
-          });
-          criados++;
+          for (const janela of janelas) {
+            const [existente] = await tx
+              .select({
+                id: t.plantoes.id,
+                gerado_automaticamente: t.plantoes.gerado_automaticamente,
+              })
+              .from(t.plantoes)
+              .where(
+                and(
+                  eq(t.plantoes.funcionario_id, ocupante),
+                  eq(t.plantoes.data, data),
+                  eq(t.plantoes.hora_inicio, janela.inicio),
+                ),
+              )
+              .limit(1);
+
+            if (existente) {
+              if (!existente.gerado_automaticamente && !sobrescrever) {
+                pulados++;
+                continue;
+              }
+              await tx
+                .update(t.plantoes)
+                .set({
+                  hora_fim: janela.fim,
+                  tipo: janela.tipo,
+                  tipo_turno_id: turno.id,
+                  gerado_automaticamente: true,
+                })
+                .where(eq(t.plantoes.id, existente.id));
+              atualizados++;
+              continue;
+            }
+
+            await tx.insert(t.plantoes).values({
+              id: novoId('p'),
+              funcionario_id: ocupante,
+              data,
+              hora_inicio: janela.inicio,
+              hora_fim: janela.fim,
+              tipo: janela.tipo,
+              tipo_turno_id: turno.id,
+              status: data < hoje() ? 'confirmado' : 'previsto',
+              gerado_automaticamente: true,
+            });
+            criados++;
+          }
         }
       }
     });
@@ -310,9 +376,125 @@ export function rotasAcoes(app: FastifyInstance): void {
       acao: 'criou',
       entidade: 'Plantão (geração em lote)',
       entidade_id: equipe.id,
-      descricao: `${equipe.nome}: ${criados} criados, ${atualizados} atualizados, ${pulados} pulados (${de} a ${ate})`,
+      descricao: `${equipe.nome}: ${criados} criados, ${atualizados} atualizados, ${pulados} pulados, ${vagas} sem ocupante (${de} a ${ate})`,
     });
 
-    return reply.send({ criados, atualizados, pulados });
+    return reply.send({ criados, atualizados, pulados, vagas });
+  });
+
+  /**
+   * Substitui o ciclo inteiro de uma posição, de uma vez.
+   *
+   * A tela pinta a grade célula a célula, e o ciclo cresce e encolhe junto com
+   * as semanas preenchidas. Fazer isso pelo CRUD genérico seria um PUT ou
+   * DELETE por clique, capaz de deixar a grade pela metade se um deles
+   * falhasse — e uma grade pela metade muda o tamanho do ciclo, ou seja, muda
+   * todo o resto do calendário. Aqui a grade chega inteira e é trocada numa
+   * transação só.
+   */
+  app.put<{
+    Params: { id: string };
+    Body: {
+      inicio_em?: string;
+      celulas?: { semana: number; dia_semana: number; tipo_turno_id: string }[];
+    };
+  }>('/api/posicoes/:id/ciclo', async (req, reply) => {
+    const sessao = await exigirSessao(req);
+    exigir(ehRh(sessao), 'Só o RH e a administração alteram a escala de uma posição.');
+
+    const [posicao] = await db
+      .select()
+      .from(t.escalaPosicoes)
+      .where(eq(t.escalaPosicoes.id, req.params.id))
+      .limit(1);
+    if (!posicao) return reply.code(404).send({ erro: 'Posição não encontrada.' });
+
+    const inicioEm = req.body?.inicio_em ?? '';
+    if (!DATA_ISO.test(inicioEm)) {
+      return reply.code(400).send({ erro: '"inicio_em" precisa ser uma data ISO válida.' });
+    }
+
+    const celulas = req.body?.celulas ?? [];
+    const foraDoCiclo = celulas.find((c) => c.semana < 1 || c.semana > MAXIMO_SEMANAS);
+    if (foraDoCiclo) {
+      return reply.code(400).send({ erro: `A semana precisa estar entre 1 e ${MAXIMO_SEMANAS}.` });
+    }
+    const foraDaSemana = celulas.find((c) => c.dia_semana < 0 || c.dia_semana > 6);
+    if (foraDaSemana) {
+      return reply
+        .code(400)
+        .send({ erro: 'Dia da semana precisa estar entre 0 (domingo) e 6 (sábado).' });
+    }
+
+    // Uma célula apontando para turno de outra equipe pintaria uma cor que a
+    // legenda desta equipe não tem.
+    const legenda = await db
+      .select({ id: t.tiposTurno.id })
+      .from(t.tiposTurno)
+      .where(eq(t.tiposTurno.equipe_id, posicao.equipe_id));
+    const daEquipe = new Set(legenda.map((x) => x.id));
+    const intrusa = celulas.find((c) => !daEquipe.has(c.tipo_turno_id));
+    if (intrusa) {
+      return reply.code(400).send({ erro: 'Turno não pertence à legenda da equipe desta posição.' });
+    }
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(t.escalaPosicoes)
+        .set({ inicio_em: inicioEm })
+        .where(eq(t.escalaPosicoes.id, posicao.id));
+      await tx.delete(t.escalaCelulas).where(eq(t.escalaCelulas.posicao_id, posicao.id));
+
+      if (celulas.length > 0) {
+        await tx.insert(t.escalaCelulas).values(
+          celulas.map((c) => ({
+            id: novoId('ecl'),
+            posicao_id: posicao.id,
+            semana: c.semana,
+            dia_semana: c.dia_semana,
+            tipo_turno_id: c.tipo_turno_id,
+          })),
+        );
+      }
+    });
+
+    const semanas = celulas.reduce((maior, c) => Math.max(maior, c.semana), 0);
+    await registrar(sessao, {
+      acao: 'atualizou',
+      entidade: 'Posição de escala',
+      entidade_id: posicao.id,
+      descricao: `${posicao.nome}: ciclo de ${semanas} semana(s), a partir de ${inicioEm}`,
+    });
+
+    return reply.send({ posicao_id: posicao.id, semanas, celulas: celulas.length });
+  });
+
+  /**
+   * Esvazia a grade de uma posição, sem apagar a posição.
+   *
+   * A vaga continua existindo — é justamente o que a equipe precisa manter de
+   * pé. Para tirar a posição do quadro de vez, use o CRUD de `escalaPosicoes`.
+   */
+  app.delete<{ Params: { id: string } }>('/api/posicoes/:id/ciclo', async (req, reply) => {
+    const sessao = await exigirSessao(req);
+    exigir(ehRh(sessao), 'Só o RH e a administração alteram a escala de uma posição.');
+
+    const [posicao] = await db
+      .select()
+      .from(t.escalaPosicoes)
+      .where(eq(t.escalaPosicoes.id, req.params.id))
+      .limit(1);
+    if (!posicao) return reply.code(404).send({ erro: 'Posição não encontrada.' });
+
+    await db.delete(t.escalaCelulas).where(eq(t.escalaCelulas.posicao_id, posicao.id));
+
+    await registrar(sessao, {
+      acao: 'removeu',
+      entidade: 'Posição de escala',
+      entidade_id: posicao.id,
+      descricao: `Grade de ${posicao.nome} esvaziada`,
+    });
+
+    return reply.send({ apagado: true });
   });
 }
