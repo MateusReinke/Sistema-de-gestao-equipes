@@ -18,8 +18,8 @@ import type {
   ContatoCliente,
   Departamento,
   Equipe,
-  EscalaCadastro,
   EscalaCelula,
+  EscalaPosicao,
   EscalaExcecao,
   EventoAuditoria,
   Ferias,
@@ -54,7 +54,7 @@ export interface BaseDados {
   funcionarios: Funcionario[];
   usuarios: Usuario[];
   tiposTurno: TipoTurno[];
-  escalaCadastros: EscalaCadastro[];
+  escalaPosicoes: EscalaPosicao[];
   escalaCelulas: EscalaCelula[];
   escalaExcecoes: EscalaExcecao[];
   plantoes: Plantao[];
@@ -81,7 +81,7 @@ const BASE_VAZIA: BaseDados = {
   funcionarios: [],
   usuarios: [],
   tiposTurno: [],
-  escalaCadastros: [],
+  escalaPosicoes: [],
   escalaCelulas: [],
   escalaExcecoes: [],
   plantoes: [],
@@ -155,14 +155,16 @@ interface ContextoDados extends BaseDados {
     de: string,
     ate: string,
     sobrescrever?: boolean,
-  ) => Promise<{ criados: number; atualizados: number; pulados: number }>;
-  /** Apaga o cadastro de escala de uma pessoa: grade e data inicial. */
-  removerCiclo: (funcionarioId: string) => Promise<void>;
-  /** Troca o ciclo inteiro de uma pessoa — ver `/api/funcionarios/:id/ciclo`. */
+  ) => Promise<{ criados: number; atualizados: number; pulados: number; vagas: number }>;
+  salvarPosicao: (p: EscalaPosicao) => Promise<void>;
+  removerPosicao: (id: string) => Promise<void>;
+  /** Esvazia a grade de uma posição, mantendo a vaga de pé. */
+  removerCiclo: (posicaoId: string) => Promise<void>;
+  /** Troca o ciclo inteiro de uma posição — ver `/api/posicoes/:id/ciclo`. */
   salvarCiclo: (
-    funcionarioId: string,
+    posicaoId: string,
     inicioEm: string,
-    celulas: Omit<EscalaCelula, 'id' | 'cadastro_id'>[],
+    celulas: Omit<EscalaCelula, 'id' | 'posicao_id'>[],
   ) => Promise<void>;
 
   decidir: (
@@ -253,7 +255,12 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
   const gerarPlantoesEquipe = useCallback(
     async (equipeId: string, de: string, ate: string, sobrescrever?: boolean) => {
       try {
-        const resultado = await api.post<{ criados: number; atualizados: number; pulados: number }>(
+        const resultado = await api.post<{
+          criados: number;
+          atualizados: number;
+          pulados: number;
+          vagas: number;
+        }>(
           `/api/equipes/${equipeId}/gerar-plantoes`,
           { de, ate, sobrescrever },
         );
@@ -269,12 +276,12 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
 
   const salvarCiclo = useCallback(
     async (
-      funcionarioId: string,
+      posicaoId: string,
       inicioEm: string,
-      celulas: Omit<EscalaCelula, 'id' | 'cadastro_id'>[],
+      celulas: Omit<EscalaCelula, 'id' | 'posicao_id'>[],
     ) => {
       try {
-        await api.put(`/api/funcionarios/${funcionarioId}/ciclo`, { inicio_em: inicioEm, celulas });
+        await api.put(`/api/posicoes/${posicaoId}/ciclo`, { inicio_em: inicioEm, celulas });
         aoConcluir();
       } catch (erro) {
         aoFalhar(erro);
@@ -285,9 +292,9 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
   );
 
   const removerCiclo = useCallback(
-    async (funcionarioId: string) => {
+    async (posicaoId: string) => {
       try {
-        await api.remover(`/api/funcionarios/${funcionarioId}/ciclo`);
+        await api.remover(`/api/posicoes/${posicaoId}/ciclo`);
         aoConcluir();
       } catch (erro) {
         aoFalhar(erro);
@@ -322,6 +329,8 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
       desligarFuncionario,
       salvarEquipe: salvarEm('equipes'),
       salvarDepartamento: salvarEm('departamentos'),
+      salvarPosicao: salvarEm('escalaPosicoes'),
+      removerPosicao: removerDe('escalaPosicoes'),
       salvarTipoTurno: salvarEm('tiposTurno'),
       removerTipoTurno: removerDe('tiposTurno'),
       salvarEscalaExcecao: salvarEm('escalaExcecoes'),

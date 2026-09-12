@@ -260,8 +260,9 @@ export interface TipoTurno {
 }
 
 /**
- * Um dia que foge do padrão do ciclo, para uma pessoa — o ajuste pontual que
- * a tela da equipe grava ao mexer numa célula do calendário.
+ * Um dia que foge do padrão do ciclo, numa posição — o ajuste pontual que a
+ * tela da equipe grava ao mexer numa célula do calendário. Fica na posição, e
+ * não na pessoa: descreve o que aquela vaga faz naquele dia.
  *
  * `tipo_turno_id` nulo esvazia o dia — é o que distingue "este dia não tem
  * nada" de "nunca houve ajuste aqui". Para marcar folga, aponte para o item
@@ -269,29 +270,37 @@ export interface TipoTurno {
  */
 export interface EscalaExcecao {
   id: string;
-  funcionario_id: string;
+  posicao_id: string;
   data: IsoDate;
   tipo_turno_id?: string | null;
   observacao: string;
 }
 
 /**
- * O cadastro da escala de uma pessoa — a linha da aba "Cadastro" da planilha.
+ * Uma posição da escala de uma equipe — "NOC Diurno 1", "Plantão G2".
  *
- * A grade fica em `EscalaCelula`; aqui está a data que ancora o ciclo. Seguindo
- * a planilha, a semana desta data é a **última** do ciclo, e a `Semana 1` é a
- * seguinte. A conta está em `src/lib/cicloEscala.ts`.
+ * A escala é da **equipe**, não da pessoa: a posição é a vaga que precisa
+ * estar coberta, e quem a ocupa muda. `funcionario_id` nulo é vaga aberta —
+ * o dia continua no calendário, marcado como brecha.
  */
-export interface EscalaCadastro {
+export interface EscalaPosicao {
   id: string;
-  funcionario_id: string;
+  equipe_id: string;
+  nome: string;
+  /** Quem ocupa a vaga hoje; nulo é vaga aberta. */
+  funcionario_id?: string | null;
+  /**
+   * Semana que ancora o ciclo. Seguindo a planilha, a semana desta data é a
+   * **última** do ciclo, e a `Semana 1` é a seguinte — ver `cicloEscala.ts`.
+   */
   inicio_em: IsoDate;
-  observacao: string;
+  ordem: number;
+  ativo: boolean;
 }
 
 /**
- * Uma célula da grade de cadastro: nesta semana do ciclo, neste dia da semana,
- * este turno.
+ * Uma célula da grade de uma posição: nesta semana do ciclo, neste dia da
+ * semana, este turno.
  *
  * O tamanho do ciclo é a última semana preenchida — preencher a semana 1 e
  * parar já significa "toda semana igual". Folga é um turno como outro
@@ -299,7 +308,7 @@ export interface EscalaCadastro {
  */
 export interface EscalaCelula {
   id: string;
-  cadastro_id: string;
+  posicao_id: string;
   /** 1-based, como os rótulos "Semana 1", "Semana 2"… */
   semana: number;
   /** 0 = domingo … 6 = sábado. */

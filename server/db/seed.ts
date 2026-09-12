@@ -75,7 +75,7 @@ try {
   await inserir(t.avaliacoesCliente, dados.avaliacoesCliente, 'avaliações');
 
   await inserir(t.tiposTurno, dados.tiposTurno, 'turnos da legenda');
-  await inserir(t.escalaCadastros, dados.escalaCadastros, 'cadastros de escala');
+  await inserir(t.escalaPosicoes, dados.escalaPosicoes, 'posições de escala');
   await inserir(t.escalaCelulas, dados.escalaCelulas, 'células do ciclo');
   await inserir(t.plantoes, dados.plantoes, 'plantões');
 

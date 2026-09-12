@@ -205,12 +205,12 @@ export const COLECOES: Colecao[] = [
     rotulo: (i) => `${i.codigo} ${i.rotulo}`,
   },
   {
-    nome: 'escalaCadastros',
-    tabela: t.escalaCadastros,
-    entidade: 'Cadastro de escala',
+    nome: 'escalaPosicoes',
+    tabela: t.escalaPosicoes,
+    entidade: 'Posição de escala',
     escrita: { tipo: 'rh' },
-    schema: de(t.escalaCadastros),
-    rotulo: (i) => String(i.funcionario_id),
+    schema: de(t.escalaPosicoes),
+    rotulo: nomeDe,
   },
   {
     nome: 'escalaCelulas',

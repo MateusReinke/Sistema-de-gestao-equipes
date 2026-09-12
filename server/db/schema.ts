@@ -422,37 +422,52 @@ export const tiposTurno = pgTable('tipos_turno', {
 });
 
 /**
- * O cadastro da escala de uma pessoa — a "linha da aba Cadastro" da planilha
- * da operação, que é de onde todo o resto é calculado.
+ * Uma posição da escala de uma equipe — "NOC Diurno 1", "Plantão G2".
  *
- * Cada pessoa tem uma data inicial e uma grade de semanas (`Semana 1`,
- * `Semana 2`, …). O ciclo tem o tamanho da última semana preenchida e volta
- * sozinho para o começo: preencheu só a semana 1, toda semana é igual;
- * preencheu até a 3, a quarta semana do calendário já é a semana 1 de novo.
- * A conta que lê isso está em `src/lib/cicloEscala.ts`.
+ * A escala pertence à **equipe**, não à pessoa. A posição é a vaga que precisa
+ * estar coberta; quem a ocupa hoje é um detalhe que muda. Por isso a grade do
+ * ciclo e a data inicial ficam aqui, e o funcionário entra como ocupante
+ * opcional: desligar alguém esvazia a vaga sem apagar a escala, e os dias dela
+ * passam a aparecer como brecha em vez de sumirem do calendário.
+ *
+ * O ciclo é o da planilha: uma grade de `Semana 1`, `Semana 2`… em
+ * `escala_celulas`, que volta sozinha para o começo (ver `cicloEscala.ts`).
  */
-export const escalaCadastros = pgTable('escala_cadastros', {
-  id: varchar('id', { length: 40 }).primaryKey(),
-  funcionario_id: varchar('funcionario_id', { length: 40 })
-    .notNull()
-    .unique()
-    .references(() => funcionarios.id, { onDelete: 'cascade' }),
-  /**
-   * Semana que ancora o ciclo. Seguindo a planilha, a semana desta data é a
-   * **última** do ciclo — a `Semana 1` é a seguinte.
-   */
-  inicio_em: date('inicio_em').notNull(),
-  observacao: text('observacao').notNull().default(''),
-});
+export const escalaPosicoes = pgTable(
+  'escala_posicoes',
+  {
+    id: varchar('id', { length: 40 }).primaryKey(),
+    equipe_id: varchar('equipe_id', { length: 40 })
+      .notNull()
+      .references(() => equipes.id, { onDelete: 'cascade' }),
+    nome: text('nome').notNull(),
+    /**
+     * Quem ocupa a vaga hoje. Nulo é vaga aberta — e é justamente o estado que
+     * precisa saltar aos olhos, não um erro. `set null` no desligamento deixa
+     * a posição de pé com a escala intacta.
+     */
+    funcionario_id: varchar('funcionario_id', { length: 40 }).references(() => funcionarios.id, {
+      onDelete: 'set null',
+    }),
+    /**
+     * Semana que ancora o ciclo. Seguindo a planilha, a semana desta data é a
+     * **última** do ciclo — a `Semana 1` é a seguinte.
+     */
+    inicio_em: date('inicio_em').notNull(),
+    ordem: smallint('ordem').notNull().default(0),
+    ativo: boolean('ativo').notNull().default(true),
+  },
+  (t) => ({ porEquipe: index('escala_posicoes_equipe_idx').on(t.equipe_id) }),
+);
 
 /** Uma célula da grade: nesta semana do ciclo, neste dia, este turno. */
 export const escalaCelulas = pgTable(
   'escala_celulas',
   {
     id: varchar('id', { length: 40 }).primaryKey(),
-    cadastro_id: varchar('cadastro_id', { length: 40 })
+    posicao_id: varchar('posicao_id', { length: 40 })
       .notNull()
-      .references(() => escalaCadastros.id, { onDelete: 'cascade' }),
+      .references(() => escalaPosicoes.id, { onDelete: 'cascade' }),
     /** 1-based, como os rótulos "Semana 1", "Semana 2"… da planilha. */
     semana: smallint('semana').notNull(),
     /** 0 = domingo … 6 = sábado. */
@@ -467,28 +482,32 @@ export const escalaCelulas = pgTable(
       .references(() => tiposTurno.id, { onDelete: 'cascade' }),
   },
   (t) => ({
-    celulaUnica: uniqueIndex('escala_celulas_celula_idx').on(t.cadastro_id, t.semana, t.dia_semana),
+    celulaUnica: uniqueIndex('escala_celulas_celula_idx').on(t.posicao_id, t.semana, t.dia_semana),
   }),
 );
 
 /**
- * Um dia que foge do padrão do ciclo, para uma pessoa.
+ * Um dia que foge do padrão do ciclo, numa posição.
  *
- * O rodízio continua sendo a fonte do desenho; isto é o ajuste pontual em
- * cima dele — trocar quem cobre um sábado, tirar alguém de um dia, encaixar
- * um plantão extra. Guardar como exceção (e não reescrevendo a grade) é o que
+ * O ciclo continua sendo a fonte do desenho; isto é o ajuste pontual em cima
+ * dele — trocar o que a vaga faz num sábado, esvaziar um dia, encaixar um
+ * plantão extra. Guardar como exceção (e não reescrevendo a grade) é o que
  * permite mexer num dia sem mudar todas as outras semanas do ciclo.
  *
- * `tipo_turno_id` nulo é o jeito de dizer **folga**: sem isso não haveria como
- * distinguir "este dia virou folga" de "nunca houve exceção aqui".
+ * Fica na posição, e não na pessoa, pelo mesmo motivo que a grade: o ajuste
+ * descreve o que aquela vaga faz naquele dia, e continua valendo se quem a
+ * ocupa mudar.
+ *
+ * `tipo_turno_id` nulo esvazia o dia — é o que distingue "este dia não tem
+ * nada" de "nunca houve ajuste aqui".
  */
 export const escalaExcecoes = pgTable(
   'escala_excecoes',
   {
     id: varchar('id', { length: 40 }).primaryKey(),
-    funcionario_id: varchar('funcionario_id', { length: 40 })
+    posicao_id: varchar('posicao_id', { length: 40 })
       .notNull()
-      .references(() => funcionarios.id, { onDelete: 'cascade' }),
+      .references(() => escalaPosicoes.id, { onDelete: 'cascade' }),
     data: date('data').notNull(),
     tipo_turno_id: varchar('tipo_turno_id', { length: 40 }).references(() => tiposTurno.id, {
       onDelete: 'cascade',
@@ -496,8 +515,8 @@ export const escalaExcecoes = pgTable(
     observacao: text('observacao').notNull().default(''),
   },
   (t) => ({
-    // Um dia tem um estado só por pessoa: gravar dois seria ambíguo na tela.
-    diaUnico: uniqueIndex('escala_excecoes_dia_idx').on(t.funcionario_id, t.data),
+    // Um dia tem um estado só por posição: gravar dois seria ambíguo na tela.
+    diaUnico: uniqueIndex('escala_excecoes_dia_idx').on(t.posicao_id, t.data),
   }),
 );
 
@@ -844,7 +863,7 @@ export const tabelasNaOrdem = [
   atendimentoEquipes,
   avaliacoesCliente,
   tiposTurno,
-  escalaCadastros,
+  escalaPosicoes,
   escalaCelulas,
   escalaExcecoes,
   plantoes,

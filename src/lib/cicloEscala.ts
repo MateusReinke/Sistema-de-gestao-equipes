@@ -2,15 +2,17 @@
  * O ciclo da escala, exatamente como a planilha da operação faz.
  *
  * Na planilha, a aba **Cadastro** tem uma linha por pessoa e, ao lado do nome,
- * uma grade de semanas: `Dom1 Seg1 … Sáb1 | Dom2 Seg2 … Sáb2 | Dom3 …`. Quem
- * monta a escala preenche quantas semanas quiser e o ciclo volta sozinho para
- * o começo — preencheu só a semana 1, toda semana é igual; preencheu 1, 2 e 3,
- * a quarta semana do calendário já é a semana 1 de novo.
+ * uma grade de semanas: `Dom1 Seg1 … Sáb1 | Dom2 Seg2 … Sáb2 | Dom3 …`. Aqui a
+ * linha é a *posição* da equipe em vez da pessoa — quem a ocupa muda, a escala
+ * não —, mas a conta é exatamente a mesma. Quem monta a escala preenche
+ * quantas semanas quiser e o ciclo volta sozinho para o começo: preencheu só a
+ * semana 1, toda semana é igual; preencheu 1, 2 e 3, a quarta semana do
+ * calendário já é a semana 1 de novo.
  *
  * As três fórmulas que fazem isso, e que este arquivo reproduz:
  *
  * 1. **Quantas semanas tem o ciclo** — `COUNTA(Dom1; Dom2; …; Dom9)`, uma
- *    conta por *coluna de dia da semana*. É por coluna, não por pessoa: dá
+ *    conta por *coluna de dia da semana*. É por coluna, não por linha: dá
  *    para ter domingo repetindo toda semana e segunda alternando de duas em
  *    duas, que é como a planilha trata quem só tem sábado em algumas semanas.
  *
@@ -22,7 +24,7 @@
  *    real — então fica igual.
  *
  * 3. **O turno do dia** — `INDEX(…; MATCH(nome); MATCH(dia_da_semana & semana))`,
- *    ou seja: vai na grade da pessoa e lê a célula `Seg3`, `Dom1`, `Sáb2`.
+ *    ou seja: vai na grade da linha e lê a célula `Seg3`, `Dom1`, `Sáb2`.
  *
  * A única coisa que mudamos de propósito: onde a planilha subtrai `WEEKNUM`,
  * contamos semanas de calendário corridas. Dentro do mesmo ano dá o mesmo
@@ -36,9 +38,9 @@ import { diaDaSemana, diferencaSemanas } from './date';
 export const MAXIMO_SEMANAS = 9;
 
 /**
- * Uma célula da grade de cadastro: em qual semana do ciclo, em qual dia da
- * semana, que turno a pessoa cumpre. A ausência de célula é o "não preenchido"
- * da planilha — não conta para o tamanho do ciclo. Folga é um turno como outro
+ * Uma célula da grade: em qual semana do ciclo, em qual dia da semana, que
+ * turno a posição cumpre. A ausência de célula é o "não preenchido" da
+ * planilha — não conta para o tamanho do ciclo. Folga é um turno como outro
  * qualquer, por isso ela aparece aqui com `tipo_turno_id` preenchido.
  */
 export interface CelulaCiclo {
@@ -49,8 +51,8 @@ export interface CelulaCiclo {
   tipo_turno_id: string;
 }
 
-/** O cadastro de uma pessoa: a data que ancora o ciclo e a grade dela. */
-export interface CicloPessoa {
+/** O ciclo de uma posição: a data que o ancora e a grade dela. */
+export interface Ciclo {
   inicio_em: IsoDate;
   celulas: CelulaCiclo[];
 }
@@ -77,7 +79,7 @@ export function ciclosPorDia(celulas: CelulaCiclo[]): number[] {
   return ciclos;
 }
 
-/** O ciclo da pessoa como um todo — a maior semana preenchida na grade. */
+/** O ciclo como um todo — a maior semana preenchida na grade. */
 export function semanasDoCiclo(celulas: CelulaCiclo[]): number {
   return celulas.reduce((maior, c) => Math.max(maior, c.semana), 0);
 }
@@ -95,10 +97,10 @@ export function semanaDoCiclo(inicioEm: IsoDate, data: IsoDate, ciclo: number): 
 }
 
 /**
- * O turno que a pessoa cumpre num dia, ou `null` quando a grade não diz nada
+ * O turno que a posição cumpre num dia, ou `null` quando a grade não diz nada
  * sobre aquele dia da semana.
  */
-export function turnoDoDia(ciclo: CicloPessoa, data: IsoDate): string | null {
+export function turnoDoDia(ciclo: Ciclo, data: IsoDate): string | null {
   const dia = diaDaSemana(data);
   const tamanho = ciclosPorDia(ciclo.celulas)[dia];
   if (tamanho === 0) return null;
@@ -109,7 +111,7 @@ export function turnoDoDia(ciclo: CicloPessoa, data: IsoDate): string | null {
 }
 
 /**
- * A mesma grade, girada em `semanas` — o que transforma um cadastro só num
+ * A mesma grade, girada em `semanas` — o que transforma uma posição só num
  * rodízio inteiro.
  *
  * É assim que a planilha monta o plantão de infra: as três pessoas têm a mesma
@@ -117,7 +119,7 @@ export function turnoDoDia(ciclo: CicloPessoa, data: IsoDate): string | null {
  * plantão hoje estará na de folga daqui a uma semana, e o backup cai sozinho
  * no lugar certo — sem preencher 21 células à mão e sem errar o alinhamento.
  *
- * Girar em 1 significa "uma semana atrás do original": o que a pessoa-base faz
+ * Girar em 1 significa "uma semana atrás do original": o que a posição-base faz
  * nesta semana, quem foi girado em 1 faz na semana que vem.
  */
 export function girarCiclo(celulas: CelulaCiclo[], semanas: number): CelulaCiclo[] {

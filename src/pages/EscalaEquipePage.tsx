@@ -3,9 +3,14 @@
  *
  * É onde a operação de uma equipe cabe inteira — o calendário do mês, a
  * legenda que aquela equipe usa, quem está nela e a situação de férias de cada
- * pessoa. O calendário é a projeção do rodízio cadastrado, calculada na hora
+ * pessoa. O calendário é a projeção do ciclo cadastrado, calculada na hora
  * (`@/lib/projecaoEscala`), então a escala do mês que vem pode ser conferida
  * antes de existir plantão nenhum no banco.
+ *
+ * A linha do calendário é a **posição** da equipe, não a pessoa: "NOC Diurno 1"
+ * precisa estar coberto todo dia, e quem o ocupa muda. Por isso desligar
+ * alguém abre a vaga em vez de apagar a escala — e o dia vira alerta de brecha
+ * em vez de sumir da tela.
  *
  * A legenda é por equipe de propósito: no NOC, "T.2" quer dizer turno noturno;
  * na infra, plantão. Enquanto a equipe não monta a dela, vale a embutida.
@@ -92,9 +97,21 @@ import {
   TURNOS_PADRAO,
   type TurnoLegenda,
 } from '@/lib/turnos';
-import { coberturaPorDia, diasDoIntervalo, projetarEscalaEquipe } from '@/lib/projecaoEscala';
+import {
+  brechasPorDia,
+  coberturaPorDia,
+  diasDoIntervalo,
+  projetarEscalaEquipe,
+} from '@/lib/projecaoEscala';
 import { STATUS_FUNCIONARIO, CLASSE_STATUS_FUNCIONARIO, TIPO_PLANTAO } from '@/lib/labels';
-import type { Acionamento, CorTurno, Funcionario, TipoPlantao, TipoTurno } from '@/types/sgo';
+import type {
+  Acionamento,
+  CorTurno,
+  EscalaPosicao,
+  Funcionario,
+  TipoPlantao,
+  TipoTurno,
+} from '@/types/sgo';
 
 export default function EscalaEquipePage() {
   const { id = '' } = useParams();
@@ -103,7 +120,7 @@ export default function EscalaEquipePage() {
     equipes,
     funcionarios,
     tiposTurno,
-    escalaCadastros,
+    escalaPosicoes,
     escalaCelulas,
     escalaExcecoes,
     ferias,
@@ -115,6 +132,8 @@ export default function EscalaEquipePage() {
     removerEscalaExcecao,
     salvarCiclo,
     removerCiclo,
+    salvarPosicao,
+    removerPosicao,
     salvarFuncionario,
   } = useDados();
   const { podeGerenciar } = useAuth();
@@ -130,8 +149,9 @@ export default function EscalaEquipePage() {
     { tipo: 'pessoa'; id: string } | { tipo: 'turno'; id: string } | null
   >(null);
   const [alvo, setAlvo] = useState<string | null>(null);
-  const [cicloEmEdicao, setCicloEmEdicao] = useState<Funcionario | null>(null);
-  const [cadastroAExcluir, setCadastroAExcluir] = useState<Funcionario | null>(null);
+  const [posicaoEmEdicao, setPosicaoEmEdicao] = useState<EscalaPosicao | null>(null);
+  const [gradeAEsvaziar, setGradeAEsvaziar] = useState<EscalaPosicao | null>(null);
+  const [posicaoAExcluir, setPosicaoAExcluir] = useState<EscalaPosicao | null>(null);
   const [adicionarPessoa, setAdicionarPessoa] = useState(false);
   const [pessoaParaAdicionar, setPessoaParaAdicionar] = useState('');
 
@@ -155,7 +175,7 @@ export default function EscalaEquipePage() {
         ? projetarEscalaEquipe(
             {
               funcionarios,
-              escalaCadastros,
+              escalaPosicoes,
               escalaCelulas,
               escalaExcecoes,
               ferias,
@@ -170,17 +190,44 @@ export default function EscalaEquipePage() {
             ultimoDia,
           )
         : [],
-    [equipe, funcionarios, escalaCadastros, escalaCelulas, escalaExcecoes, ferias, ausencias, legenda, tiposTurno, primeiroDia, ultimoDia],
+    [equipe, funcionarios, escalaPosicoes, escalaCelulas, escalaExcecoes, ferias, ausencias, legenda, tiposTurno, primeiroDia, ultimoDia],
   );
 
   const cobertura = useMemo(() => coberturaPorDia(linhas, dias), [linhas, dias]);
   const diasDescobertos = dias.filter((d) => (cobertura.get(d) ?? 0) < (equipe?.cobertura_minima ?? 0));
-  const conflitos = linhas.reduce(
-    (soma, l) => soma + [...l.dias.values()].filter((d) => d.indisponivel).length,
-    0,
-  );
+  const brechas = useMemo(() => brechasPorDia(linhas, dias), [linhas, dias]);
+  const diasComBrecha = [...brechas.keys()].length;
+  const vagasAbertas = linhas.filter((l) => !l.ocupante);
   const semEscala = linhas.filter((l) => l.ciclo === 0);
   const comLegendaAlheia = linhas.filter((l) => l.legendaDeOutraEquipe);
+
+  /** Pessoas da equipe, que é de onde saem os ocupantes das posições. */
+  const membros = useMemo(
+    () =>
+      funcionarios
+        .filter((f) => f.equipe_id === id && f.status !== 'desligado')
+        .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
+    [funcionarios, id],
+  );
+
+  /** Cria uma vaga em branco e já abre o editor dela. */
+  const novaPosicao = async () => {
+    const posicao: EscalaPosicao = {
+      id: novoId('ep'),
+      equipe_id: id,
+      nome: `Posição ${linhas.length + 1}`,
+      funcionario_id: null,
+      inicio_em: inicioDaSemana(hojeIso),
+      ordem: linhas.length + 1,
+      ativo: true,
+    };
+    try {
+      await salvarPosicao(posicao);
+      setPosicaoEmEdicao(posicao);
+    } catch {
+      // Erro já virou toast em useDados().
+    }
+  };
 
   const gerar = async () => {
     if (!equipe) return;
@@ -188,7 +235,8 @@ export default function EscalaEquipePage() {
     try {
       const r = await gerarPlantoesEquipe(equipe.id, primeiroDia, ultimoDia);
       toast.success(
-        `${r.criados} plantão(ões) criado(s), ${r.atualizados} atualizado(s), ${r.pulados} pulado(s).`,
+        `${r.criados} plantão(ões) criado(s), ${r.atualizados} atualizado(s), ${r.pulados} pulado(s).` +
+          (r.vagas ? ` ${r.vagas} dia(s) sem ocupante ficaram descobertos.` : ''),
       );
     } catch {
       // O erro já virou toast em useDados().
@@ -198,19 +246,17 @@ export default function EscalaEquipePage() {
   };
 
   /**
-   * Ajusta um dia solto de uma pessoa.
+   * Ajusta um dia solto de uma posição.
    *
-   * Grava uma exceção por cima do ciclo, em vez de mexer na grade: trocar quem
-   * cobre um sábado não pode mudar todos os outros sábados. Quando o turno
-   * escolhido é o mesmo que o padrão já previa, a exceção é retirada — o dia
-   * volta a seguir o rodízio, sem deixar um registro que não muda nada.
+   * Grava uma exceção por cima do ciclo, em vez de mexer na grade: trocar o que
+   * a vaga faz num sábado não pode mudar todos os outros sábados. Quando o
+   * turno escolhido é o mesmo que o ciclo já previa, a exceção é retirada — o
+   * dia volta a seguir o rodízio, sem deixar um registro que não muda nada.
    */
-  const ajustarDia = async (funcionarioId: string, data: string, turno: TurnoLegenda) => {
+  const ajustarDia = async (posicaoId: string, data: string, turno: TurnoLegenda) => {
     if (!podeGerenciar) return;
-    const existente = escalaExcecoes.find(
-      (e) => e.funcionario_id === funcionarioId && e.data === data,
-    );
-    const doPadrao = linhas.find((l) => l.funcionario.id === funcionarioId)?.dias.get(data);
+    const existente = escalaExcecoes.find((e) => e.posicao_id === posicaoId && e.data === data);
+    const doPadrao = linhas.find((l) => l.posicao.id === posicaoId)?.dias.get(data);
 
     // Comparar por rótulo, e não por id: a equipe pode estar usando a legenda
     // embutida, cujos ids mudam assim que ela ganha a própria.
@@ -231,7 +277,7 @@ export default function EscalaEquipePage() {
 
       await salvarEscalaExcecao({
         id: existente?.id ?? novoId('ex'),
-        funcionario_id: funcionarioId,
+        posicao_id: posicaoId,
         data,
         tipo_turno_id: tipoTurnoId,
         observacao: '',
@@ -251,25 +297,30 @@ export default function EscalaEquipePage() {
   };
 
   /** Volta um dia ajustado ao que o ciclo manda. */
-  const desfazerAjuste = async (funcionarioId: string, data: string) => {
-    const existente = escalaExcecoes.find(
-      (e) => e.funcionario_id === funcionarioId && e.data === data,
-    );
+  const desfazerAjuste = async (posicaoId: string, data: string) => {
+    const existente = escalaExcecoes.find((e) => e.posicao_id === posicaoId && e.data === data);
     if (existente) await removerEscalaExcecao(existente.id);
   };
 
-  const soltarEm = async (funcionarioIdDaLinha: string, data: string) => {
+  const soltarEm = async (posicaoId: string, data: string) => {
     setAlvo(null);
     if (!arrastando) return;
-    // Arrastar uma pessoa escala aquela pessoa no dia; arrastar um turno pinta
-    // a célula em que se soltou.
+    // Arrastar uma pessoa até uma linha designa quem ocupa aquela posição;
+    // arrastar um turno pinta a célula em que se soltou.
     if (arrastando.tipo === 'pessoa') {
-      // Arrastar alguém escala a pessoa: folga como pincel não faria sentido.
-      const turno = ehFolga(pincel) ? (legenda.find((t) => !ehFolga(t)) ?? pincel) : pincel;
-      await ajustarDia(arrastando.id, data, turno);
+      const linha = linhas.find((l) => l.posicao.id === posicaoId);
+      const pessoa = funcionarios.find((f) => f.id === arrastando.id);
+      if (linha && pessoa) {
+        try {
+          await salvarPosicao({ ...linha.posicao, funcionario_id: pessoa.id });
+          toast.success(`${pessoa.nome} assumiu ${linha.posicao.nome}.`);
+        } catch {
+          // Erro já virou toast em useDados().
+        }
+      }
     } else {
       const turno = legenda.find((t) => t.id === arrastando.id);
-      if (turno) await ajustarDia(funcionarioIdDaLinha, data, turno);
+      if (turno) await ajustarDia(posicaoId, data, turno);
     }
     setArrastando(null);
   };
@@ -293,16 +344,14 @@ export default function EscalaEquipePage() {
       `escala-${equipe?.nome ?? 'equipe'}-${ano}-${String(mes + 1).padStart(2, '0')}`,
       linhas,
       [
-        { cabecalho: 'Funcionário', valor: (l) => l.funcionario.nome },
-        { cabecalho: 'Cargo', valor: (l) => l.funcionario.cargo },
+        { cabecalho: 'Posição', valor: (l) => l.posicao.nome },
+        { cabecalho: 'Ocupante', valor: (l) => l.ocupante?.nome ?? 'Vaga aberta' },
         ...dias.map((data) => ({
           cabecalho: `${Number(data.slice(8))} ${DIAS_SEMANA[diaDaSemana(data)]}`,
           valor: (l: (typeof linhas)[number]) => {
             const dia = l.dias.get(data);
             if (!dia) return '';
-            return dia.indisponivel
-              ? `${dia.turno.rotulo} (${dia.indisponivel})`
-              : dia.turno.rotulo;
+            return dia.descoberto ? `${dia.turno.rotulo} (${dia.descoberto})` : dia.turno.rotulo;
           },
         })),
       ],
@@ -325,7 +374,7 @@ export default function EscalaEquipePage() {
     <div className="space-y-5">
       <CabecalhoPagina
         titulo={equipe.nome}
-        descricao="Escala do mês, legenda da equipe e quem está nela."
+        descricao="Escala do mês por posição, legenda da equipe e quem está nela."
         acoes={
           <>
             <Button variant="ghost" onClick={() => navegar('/equipes')}>
@@ -345,7 +394,7 @@ export default function EscalaEquipePage() {
       />
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Indicador rotulo="Pessoas na escala" valor={linhas.length - semEscala.length} icone={UsersRound} />
+        <Indicador rotulo="Posições na escala" valor={linhas.length} icone={UsersRound} />
         <Indicador
           rotulo="Dias abaixo da cobertura"
           valor={diasDescobertos.length}
@@ -354,30 +403,39 @@ export default function EscalaEquipePage() {
           detalhe={`Mínimo ${equipe.cobertura_minima}/dia`}
         />
         <Indicador
-          rotulo="Conflitos com férias"
-          valor={conflitos}
+          rotulo="Dias com brecha"
+          valor={diasComBrecha}
           icone={CalendarDays}
-          tom={conflitos > 0 ? 'warning' : 'success'}
+          tom={diasComBrecha > 0 ? 'destructive' : 'success'}
+          detalhe="Escalado e sem ninguém"
         />
         <Indicador
-          rotulo="Sem cadastro"
-          valor={semEscala.length}
-          icone={UsersRound}
-          tom={semEscala.length > 0 ? 'warning' : 'success'}
+          rotulo="Vagas abertas"
+          valor={vagasAbertas.length}
+          icone={UserPlus}
+          tom={vagasAbertas.length > 0 ? 'warning' : 'success'}
         />
       </div>
 
+      {vagasAbertas.length > 0 && (
+        <Aviso tom="destructive">
+          Brecha na escala — posição sem ninguém:{' '}
+          {vagasAbertas.map((l) => l.posicao.nome).join(', ')}. Os dias continuam na escala,
+          marcados como vaga, até alguém assumir.
+        </Aviso>
+      )}
+
       {semEscala.length > 0 && (
         <Aviso>
-          Sem cadastro de escala, então não aparecem no calendário:{' '}
-          {semEscala.map((l) => l.funcionario.nome).join(', ')}.
+          Sem grade montada, então não aparecem no calendário:{' '}
+          {semEscala.map((l) => l.posicao.nome).join(', ')}.
         </Aviso>
       )}
 
       {comLegendaAlheia.length > 0 && (
         <Aviso tom="warning">
-          Cadastrados com a legenda de outra equipe (mudaram de time depois):{' '}
-          {comLegendaAlheia.map((l) => l.funcionario.nome).join(', ')}. O calendário usa o turno de
+          Posições montadas com a legenda de outra equipe (mudaram de time depois):{' '}
+          {comLegendaAlheia.map((l) => l.posicao.nome).join(', ')}. O calendário usa o turno de
           mesmo nome desta equipe — abra o cadastro e salve de novo para acertar de vez.
         </Aviso>
       )}
@@ -447,7 +505,7 @@ export default function EscalaEquipePage() {
                 <thead>
                   <tr>
                     <th className="sticky left-0 z-20 min-w-[200px] border-b bg-card p-2 text-left font-medium text-muted-foreground">
-                      Funcionário
+                      Posição
                     </th>
                     {dias.map((data) => {
                       const diaSemana = diaDaSemana(data);
@@ -475,23 +533,38 @@ export default function EscalaEquipePage() {
 
                 <tbody>
                   {linhas.map((linha) => (
-                    <tr key={linha.funcionario.id}>
+                    <tr key={linha.posicao.id}>
                       <td className="sticky left-0 z-10 border-b bg-card p-1.5">
                         <button
                           type="button"
-                          onClick={() => setPessoaAberta(linha.funcionario)}
+                          onClick={() =>
+                            linha.ocupante
+                              ? setPessoaAberta(linha.ocupante)
+                              : podeGerenciar && setPosicaoEmEdicao(linha.posicao)
+                          }
                           className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-accent"
                         >
-                          <Avatar nome={linha.funcionario.nome} tamanho="sm" />
+                          {linha.ocupante ? (
+                            <Avatar nome={linha.ocupante.nome} tamanho="sm" />
+                          ) : (
+                            <span
+                              className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-dashed border-destructive/50 text-destructive"
+                              title="Vaga aberta"
+                            >
+                              <UserPlus className="h-3.5 w-3.5" />
+                            </span>
+                          )}
                           <div className="min-w-0">
                             <p className="truncate text-[12px] font-medium leading-tight">
-                              {linha.funcionario.nome}
+                              {linha.posicao.nome}
                             </p>
-                            <p className="truncate text-[10px] leading-tight text-muted-foreground">
-                              {linha.funcionario.cargo}
-                              {linha.ciclo > 0
-                                ? ` · ciclo de ${linha.ciclo} semana(s)`
-                                : ' · sem cadastro'}
+                            <p
+                              className={`truncate text-[10px] leading-tight ${
+                                linha.ocupante ? 'text-muted-foreground' : 'font-medium text-destructive'
+                              }`}
+                            >
+                              {linha.ocupante ? linha.ocupante.nome : 'Vaga aberta'}
+                              {linha.ciclo > 0 ? ` · ciclo de ${linha.ciclo} semana(s)` : ' · sem grade'}
                             </p>
                           </div>
                         </button>
@@ -503,7 +576,7 @@ export default function EscalaEquipePage() {
                         const diaSemana = diaDaSemana(data);
                         const fimDeSemana = diaSemana === 0 || diaSemana === 6;
 
-                        const chave = `${linha.funcionario.id}|${data}`;
+                        const chave = `${linha.posicao.id}|${data}`;
                         return (
                           <td
                             key={data}
@@ -514,30 +587,32 @@ export default function EscalaEquipePage() {
                               setAlvo(chave);
                             }}
                             onDragLeave={() => setAlvo((a) => (a === chave ? null : a))}
-                            onDrop={() => soltarEm(linha.funcionario.id, data)}
+                            onDrop={() => soltarEm(linha.posicao.id, data)}
                           >
                             <button
                               type="button"
                               disabled={!podeGerenciar}
-                              onClick={() => ajustarDia(linha.funcionario.id, data, pincel)}
+                              onClick={() => ajustarDia(linha.posicao.id, data, pincel)}
                               onContextMenu={(e) => {
                                 e.preventDefault();
-                                void desfazerAjuste(linha.funcionario.id, data);
+                                void desfazerAjuste(linha.posicao.id, data);
                               }}
                               title={
                                 dia && turno
                                   ? `${turno.rotulo} · ${dia.horario}${dia.ajustado ? ' · ajustado à mão' : ''}${
-                                      dia.indisponivel
-                                        ? dia.indisponivel === 'ferias'
-                                          ? ' — de férias!'
-                                          : ' — afastado!'
+                                      dia.descoberto
+                                        ? dia.descoberto === 'vaga'
+                                          ? ' — vaga aberta!'
+                                          : dia.descoberto === 'ferias'
+                                            ? ' — de férias!'
+                                            : ' — afastado!'
                                         : ''
                                     }`
                                   : 'Fora do ciclo — clique para aplicar o turno escolhido'
                               }
                               className={`w-full rounded border px-0.5 py-1 text-[9px] font-semibold transition-all ${
                                 turno ? classeDoTurno(turno) : 'border-dashed text-muted-foreground/40'
-                              } ${dia?.indisponivel ? 'opacity-45 line-through' : ''} ${
+                              } ${dia?.descoberto ? 'opacity-45 line-through' : ''} ${
                                 dia?.ajustado ? 'ring-1 ring-inset ring-foreground/40' : ''
                               } ${alvo === chave ? 'ring-2 ring-ring' : ''} ${
                                 podeGerenciar ? 'hover:brightness-110' : ''
@@ -595,7 +670,7 @@ export default function EscalaEquipePage() {
               <span className="rounded border bg-muted px-1 py-0.5 text-[9px] font-semibold line-through opacity-45">
                 T.1
               </span>
-              Escalado, mas de férias ou afastado
+              Escalado, mas sem ninguém: vaga aberta, férias ou afastamento
             </span>
           </div>
         </CardContent>
@@ -613,35 +688,41 @@ export default function EscalaEquipePage() {
             )}
           </CardHeader>
           <CardContent>
-            {linhas.length === 0 ? (
+            {membros.length === 0 ? (
               <p className="text-sm text-muted-foreground">Ninguém cadastrado nesta equipe.</p>
             ) : (
               <div className="space-y-1.5">
-                {linhas.map((linha) => {
-                  const saldo = calcularSaldoFerias(linha.funcionario, ferias);
-                  const diasNoMes = [...linha.dias.values()].filter((d) => d.turno.trabalha).length;
+                {membros.map((pessoa) => {
+                  const saldo = calcularSaldoFerias(pessoa, ferias);
+                  const ocupa = linhas.filter((l) => l.ocupante?.id === pessoa.id);
+                  const diasNoMes = ocupa.reduce(
+                    (soma, l) => soma + [...l.dias.values()].filter((d) => d.turno.trabalha).length,
+                    0,
+                  );
                   return (
                     <button
-                      key={linha.funcionario.id}
+                      key={pessoa.id}
                       type="button"
                       draggable={podeGerenciar}
-                      onDragStart={() => setArrastando({ tipo: 'pessoa', id: linha.funcionario.id })}
+                      onDragStart={() => setArrastando({ tipo: 'pessoa', id: pessoa.id })}
                       onDragEnd={() => { setArrastando(null); setAlvo(null); }}
-                      onClick={() => setPessoaAberta(linha.funcionario)}
+                      onClick={() => setPessoaAberta(pessoa)}
                       title={
                         podeGerenciar
-                          ? `Arraste até um dia do calendário para escalar ${linha.funcionario.nome}`
+                          ? `Arraste até uma linha do calendário para ${pessoa.nome} assumir aquela posição`
                           : undefined
                       }
                       className={`flex w-full items-center gap-2.5 rounded-lg border p-2 text-left transition-colors hover:bg-accent ${
                         podeGerenciar ? 'cursor-grab active:cursor-grabbing' : ''
                       }`}
                     >
-                      <Avatar nome={linha.funcionario.nome} tamanho="sm" />
+                      <Avatar nome={pessoa.nome} tamanho="sm" />
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{linha.funcionario.nome}</p>
+                        <p className="truncate text-sm font-medium">{pessoa.nome}</p>
                         <p className="truncate text-[11px] text-muted-foreground">
-                          {linha.funcionario.cargo} · {diasNoMes} dia(s) no mês
+                          {ocupa.length > 0
+                            ? `${ocupa.map((l) => l.posicao.nome).join(', ')} · ${diasNoMes} dia(s) no mês`
+                            : `${pessoa.cargo} · sem posição na escala`}
                         </p>
                       </div>
                       {saldo.vencido ? (
@@ -670,74 +751,83 @@ export default function EscalaEquipePage() {
         </Card>
 
         <Card className="shadow-card">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Cadastro da escala</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Uma grade por pessoa, no formato da planilha: Semana 1, Semana 2… O ciclo tem o
-              tamanho das semanas preenchidas e volta sozinho para o começo.
-            </p>
+          <CardHeader className="flex flex-row items-start justify-between gap-2 pb-3">
+            <div className="min-w-0">
+              <CardTitle className="text-base">Posições da escala</CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">
+                A escala é da equipe: cada posição é uma vaga com a própria grade de Semana 1,
+                Semana 2… Quem ocupa pode mudar — a escala fica.
+              </p>
+            </div>
+            {podeGerenciar && (
+              <Button variant="outline" size="sm" className="shrink-0" onClick={novaPosicao}>
+                <CalendarPlus className="mr-2 h-3.5 w-3.5" /> Nova posição
+              </Button>
+            )}
           </CardHeader>
           <CardContent>
             {linhas.length === 0 ? (
               <EstadoVazio
                 icone={CalendarDays}
-                titulo="Nenhuma pessoa nesta equipe"
-                descricao="Adicione alguém à equipe para montar o cadastro da escala."
+                titulo="Nenhuma posição ainda"
+                descricao="Crie a primeira posição e monte a grade dela — o calendário acima se preenche sozinho."
               />
             ) : (
               <div className="space-y-1.5">
-                {linhas.map((linha) => {
-                  const cadastro = escalaCadastros.find(
-                    (c) => c.funcionario_id === linha.funcionario.id,
-                  );
-                  return (
-                    <div key={linha.funcionario.id} className="flex items-center gap-2 rounded-lg border p-2">
-                      <button
-                        type="button"
-                        onClick={() => podeGerenciar && setCicloEmEdicao(linha.funcionario)}
-                        disabled={!podeGerenciar}
-                        className="min-w-0 flex-1 text-left"
-                      >
-                        <p className="truncate text-sm font-medium">{linha.funcionario.nome}</p>
-                        <p className="tabular truncate text-[11px] text-muted-foreground">
-                          {linha.ciclo > 0
-                            ? `Ciclo de ${linha.ciclo} semana(s) · desde ${formatarData(cadastro?.inicio_em)}`
-                            : 'Sem cadastro — o calendário fica vazio'}
-                        </p>
-                      </button>
-                      {linha.ciclo === 0 && (
-                        <BadgeStatus
-                          texto="Em branco"
-                          classe="bg-warning/15 text-warning-strong border-warning/30"
-                          className="text-[10px]"
-                        />
-                      )}
-                      {podeGerenciar && (
-                        <>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            title={`Editar o ciclo de ${linha.funcionario.nome}`}
-                            onClick={() => setCicloEmEdicao(linha.funcionario)}
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-destructive"
-                            title={`Excluir o cadastro de ${linha.funcionario.nome}`}
-                            disabled={linha.ciclo === 0}
-                            onClick={() => setCadastroAExcluir(linha.funcionario)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
+                {linhas.map((linha) => (
+                  <div key={linha.posicao.id} className="flex items-center gap-2 rounded-lg border p-2">
+                    <button
+                      type="button"
+                      onClick={() => podeGerenciar && setPosicaoEmEdicao(linha.posicao)}
+                      disabled={!podeGerenciar}
+                      className="min-w-0 flex-1 text-left"
+                    >
+                      <p className="truncate text-sm font-medium">{linha.posicao.nome}</p>
+                      <p className="tabular truncate text-[11px] text-muted-foreground">
+                        {linha.ocupante?.nome ?? 'Vaga aberta'}
+                        {linha.ciclo > 0
+                          ? ` · ciclo de ${linha.ciclo} semana(s) · desde ${formatarData(linha.posicao.inicio_em)}`
+                          : ' · sem grade'}
+                      </p>
+                    </button>
+                    {!linha.ocupante && (
+                      <BadgeStatus
+                        texto="Vaga"
+                        classe="bg-destructive/15 text-destructive border-destructive/30"
+                        className="text-[10px]"
+                      />
+                    )}
+                    {linha.ciclo === 0 && (
+                      <BadgeStatus
+                        texto="Em branco"
+                        classe="bg-warning/15 text-warning-strong border-warning/30"
+                        className="text-[10px]"
+                      />
+                    )}
+                    {podeGerenciar && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          title={`Editar ${linha.posicao.nome}`}
+                          onClick={() => setPosicaoEmEdicao(linha.posicao)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-destructive"
+                          title={`Excluir a posição ${linha.posicao.nome}`}
+                          onClick={() => setPosicaoAExcluir(linha.posicao)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </CardContent>
@@ -745,48 +835,71 @@ export default function EscalaEquipePage() {
       </div>
 
       <EditorCiclo
-        pessoa={cicloEmEdicao}
-        cadastro={escalaCadastros.find((c) => c.funcionario_id === cicloEmEdicao?.id)}
-        celulas={escalaCelulas.filter(
-          (c) =>
-            c.cadastro_id ===
-            escalaCadastros.find((x) => x.funcionario_id === cicloEmEdicao?.id)?.id,
-        )}
+        posicao={posicaoEmEdicao}
+        celulas={escalaCelulas.filter((c) => c.posicao_id === posicaoEmEdicao?.id)}
         legenda={legenda}
-        colegas={funcionarios.filter(
-          (f) => f.equipe_id === id && f.id !== cicloEmEdicao?.id && f.status !== 'desligado',
-        )}
-        aoFechar={() => setCicloEmEdicao(null)}
+        candidatos={membros}
+        outrasPosicoes={linhas
+          .map((l) => l.posicao)
+          .filter((p) => p.id !== posicaoEmEdicao?.id)}
+        aoFechar={() => setPosicaoEmEdicao(null)}
         garantirLegenda={copiarLegendaParaEquipe}
         salvarCiclo={salvarCiclo}
-        aoExcluir={setCadastroAExcluir}
+        salvarPosicao={salvarPosicao}
+        aoExcluir={setGradeAEsvaziar}
       />
 
-      <AlertDialog
-        open={cadastroAExcluir !== null}
-        onOpenChange={(v) => !v && setCadastroAExcluir(null)}
-      >
+      <AlertDialog open={gradeAEsvaziar !== null} onOpenChange={(v) => !v && setGradeAEsvaziar(null)}>
         <AlertDialogContent>
-          <AlertDialogTitle>
-            Excluir o cadastro de escala de {cadastroAExcluir?.nome}?
-          </AlertDialogTitle>
-          <AlertDialogDescription>
-            A grade do ciclo e a data inicial somem, e a pessoa deixa de aparecer no calendário —
-            mas continua na equipe. Os plantões já gerados ficam no calendário de Plantões; apague
-            por lá se também não quiser mais.
-          </AlertDialogDescription>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Esvaziar a grade de {gradeAEsvaziar?.nome}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O ciclo é apagado e a posição some do calendário até você montar outra grade. A vaga
+              continua existindo, com o ocupante que tiver.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               onClick={async () => {
-                if (!cadastroAExcluir) return;
+                if (!gradeAEsvaziar) return;
                 try {
-                  await removerCiclo(cadastroAExcluir.id);
-                  toast.success(`Cadastro de ${cadastroAExcluir.nome} excluído.`);
+                  await removerCiclo(gradeAEsvaziar.id);
+                  toast.success(`Grade de ${gradeAEsvaziar.nome} esvaziada.`);
                 } catch {
                   // Erro já virou toast em useDados().
                 }
-                setCadastroAExcluir(null);
+                setGradeAEsvaziar(null);
+              }}
+            >
+              Esvaziar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={posicaoAExcluir !== null} onOpenChange={(v) => !v && setPosicaoAExcluir(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir a posição {posicaoAExcluir?.nome}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A vaga sai do quadro da equipe, junto com a grade e os ajustes dela. Quem a ocupava
+              continua na equipe. Os plantões já gerados ficam no calendário de Plantões — apague
+              por lá se também não quiser mais.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                if (!posicaoAExcluir) return;
+                try {
+                  await removerPosicao(posicaoAExcluir.id);
+                  toast.success(`Posição ${posicaoAExcluir.nome} excluída.`);
+                } catch {
+                  // Erro já virou toast em useDados().
+                }
+                setPosicaoAExcluir(null);
               }}
             >
               Excluir
@@ -845,7 +958,7 @@ export default function EscalaEquipePage() {
       <FichaPessoa
         pessoa={pessoaAberta}
         aoFechar={() => setPessoaAberta(null)}
-        linha={linhas.find((l) => l.funcionario.id === pessoaAberta?.id)}
+        linhas={linhas.filter((l) => l.ocupante?.id === pessoaAberta?.id)}
       />
     </div>
   );
@@ -854,11 +967,12 @@ export default function EscalaEquipePage() {
   function FichaPessoa({
     pessoa,
     aoFechar,
-    linha,
+    linhas: dela,
   }: {
     pessoa: Funcionario | null;
     aoFechar: () => void;
-    linha?: (typeof linhas)[number];
+    /** As posições que esta pessoa ocupa — pode ser mais de uma. */
+    linhas: typeof linhas;
   }) {
     if (!pessoa) return null;
     const saldo = calcularSaldoFerias(pessoa, ferias);
@@ -869,8 +983,10 @@ export default function EscalaEquipePage() {
       .filter((a) => a.funcionario_id === pessoa.id && a.status === 'aprovada')
       .sort((a, b) => b.data_inicio.localeCompare(a.data_inicio));
     const porTurno = new Map<string, number>();
-    for (const d of linha?.dias.values() ?? []) {
-      porTurno.set(d.turno.id, (porTurno.get(d.turno.id) ?? 0) + 1);
+    for (const l of dela) {
+      for (const d of l.dias.values()) {
+        porTurno.set(d.turno.id, (porTurno.get(d.turno.id) ?? 0) + 1);
+      }
     }
 
     return (

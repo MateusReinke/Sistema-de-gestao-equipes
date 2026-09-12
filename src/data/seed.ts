@@ -15,8 +15,8 @@ import type {
   ContatoCliente,
   Departamento,
   Equipe,
-  EscalaCadastro,
   EscalaCelula,
+  EscalaPosicao,
   TipoTurno,
   Ferias,
   Funcionario,
@@ -261,19 +261,23 @@ const turno = (equipeId: string, codigo: string) => `tt-${equipeId}-${codigo.toL
  */
 const INICIO_CICLO = '2026-01-04';
 
-let seqCadastro = 0;
+let seqPosicao = 0;
 let seqCelula = 0;
 
 /**
  * Traduz a grade como ela aparece na planilha — uma linha de texto por semana,
- * na ordem Dom…Sáb — para as células do cadastro. `—` é dia fora do ciclo.
+ * na ordem Dom…Sáb — para as células de uma posição. `—` é dia fora do ciclo.
+ *
+ * `funcionarioId` nulo é vaga aberta: a posição existe, a escala dela roda, e
+ * os dias aparecem como brecha até alguém assumir.
  */
-function cadastrar(
-  funcionarioId: string,
+function posicao(
+  nome: string,
   equipeId: string,
+  funcionarioId: string | null,
   semanas: string[][],
-): { cadastro: EscalaCadastro; celulas: EscalaCelula[] } {
-  const id = `ec${String(++seqCadastro).padStart(2, '0')}`;
+): { posicao: EscalaPosicao; celulas: EscalaCelula[] } {
+  const id = `ep${String(++seqPosicao).padStart(2, '0')}`;
   const celulas = semanas.flatMap((dias, i) =>
     dias
       .map((codigo, diaSemana) =>
@@ -281,7 +285,7 @@ function cadastrar(
           ? null
           : {
               id: `ecl${String(++seqCelula).padStart(3, '0')}`,
-              cadastro_id: id,
+              posicao_id: id,
               semana: i + 1,
               dia_semana: diaSemana,
               tipo_turno_id: turno(equipeId, codigo),
@@ -290,7 +294,15 @@ function cadastrar(
       .filter((c): c is EscalaCelula => c !== null),
   );
   return {
-    cadastro: { id, funcionario_id: funcionarioId, inicio_em: INICIO_CICLO, observacao: '' },
+    posicao: {
+      id,
+      equipe_id: equipeId,
+      nome,
+      funcionario_id: funcionarioId,
+      inicio_em: INICIO_CICLO,
+      ordem: seqPosicao,
+      ativo: true,
+    },
     celulas,
   };
 }
@@ -312,63 +324,75 @@ const DOZE_B = [DOZE_A[1], DOZE_A[0]];
 const NOITE_B = DOZE_B.map((sem) => sem.map((c) => (c === 'T.1' ? 'T.2' : c)));
 
 /**
- * Cadastro de escala de cada pessoa — a aba "Cadastro" da planilha.
+ * As posições da escala de cada equipe — o quadro que precisa estar coberto.
  *
- * Field Service é o caso interessante: Denis e Elaine têm a mesma grade de 2
- * semanas girada de uma posição, então quando um está de plantão (T.4,
- * trabalha e atende) o outro é o backup (T.5). Um cadastro por pessoa, e o
- * rodízio cai sozinho — não existe "escala de plantão" à parte.
+ * A escala é da equipe: a posição é a vaga, e o funcionário é quem a ocupa
+ * hoje. "NOC Noturno 2" entra de propósito **sem ninguém**, para a tela ter um
+ * caso real de brecha: a escala roda, os dias aparecem, e o alerta mostra que
+ * falta gente.
+ *
+ * Field Service é o caso interessante do rodízio: as duas posições têm a mesma
+ * grade de 2 semanas girada de uma, então quando uma está de plantão (T.4,
+ * trabalha e atende) a outra é o backup (T.5).
  */
-const CADASTROS = [
-  cadastrar('f03', 'eq1', DOZE_A),
-  cadastrar('f04', 'eq1', DOZE_B),
-  cadastrar('f17', 'eq1', [['T.2', 'Folga', 'Folga', 'Folga', 'Folga', 'Folga', 'T.2']]),
-  cadastrar('f05', 'eq2', COMERCIAL),
-  cadastrar('f06', 'eq2', COMERCIAL),
-  cadastrar('f18', 'eq2', COMERCIAL),
-  cadastrar('f11', 'eq3', DOZE_A),
-  cadastrar('f12', 'eq3', NOITE_B),
-  cadastrar('f13', 'eq5', [
+const POSICOES = [
+  posicao('N1 Diurno 1', 'eq1', 'f03', DOZE_A),
+  posicao('N1 Diurno 2', 'eq1', 'f04', DOZE_B),
+  posicao('N1 Fim de semana', 'eq1', 'f17', [
+    ['T.2', 'Folga', 'Folga', 'Folga', 'Folga', 'Folga', 'T.2'],
+  ]),
+  posicao('N2 Comercial 1', 'eq2', 'f05', COMERCIAL),
+  posicao('N2 Comercial 2', 'eq2', 'f06', COMERCIAL),
+  posicao('N2 Comercial 3', 'eq2', 'f18', COMERCIAL),
+  posicao('N2 Sábado', 'eq2', 'f19', SEIS_POR_UM),
+  posicao('NOC Diurno 1', 'eq3', 'f11', DOZE_A),
+  posicao('NOC Noturno 1', 'eq3', 'f12', NOITE_B),
+  // Vaga aberta de propósito: é o alerta de brecha na escala.
+  posicao('NOC Noturno 2', 'eq3', null, NOITE_B.slice().reverse()),
+  posicao('Field Plantão A', 'eq5', 'f13', [
     ['Folga', 'T.4', 'T.4', 'T.4', 'T.4', 'T.4', 'T.4'],
     ['Folga', 'T.5', 'T.5', 'T.5', 'T.5', 'T.5', 'T.5'],
   ]),
-  cadastrar('f14', 'eq5', [
+  posicao('Field Plantão B', 'eq5', 'f14', [
     ['Folga', 'T.5', 'T.5', 'T.5', 'T.5', 'T.5', 'T.5'],
     ['Folga', 'T.4', 'T.4', 'T.4', 'T.4', 'T.4', 'T.4'],
   ]),
-  cadastrar('f19', 'eq2', SEIS_POR_UM),
 ];
 
-export const escalaCadastros: EscalaCadastro[] = CADASTROS.map((c) => c.cadastro);
-export const escalaCelulas: EscalaCelula[] = CADASTROS.flatMap((c) => c.celulas);
+export const escalaPosicoes: EscalaPosicao[] = POSICOES.map((p) => p.posicao);
+export const escalaCelulas: EscalaCelula[] = POSICOES.flatMap((p) => p.celulas);
 
 /**
- * Gera a agenda de plantões de −21 a +45 dias a partir do cadastro, cobrindo o
+ * Gera a agenda de plantões de −21 a +45 dias a partir das posições, cobrindo o
  * mês anterior, o atual e o próximo na visão de calendário — com o mesmo motor
  * (`turnoDoDia`) que a geração em lote real usa
  * (`POST /api/equipes/:id/gerar-plantoes`), para as duas nunca divergirem.
  */
 function gerarPlantoes(): Plantao[] {
   const turnoPorId = new Map(tiposTurno.map((t) => [t.id, t]));
-  const celulasPorCadastro = new Map<string, EscalaCelula[]>();
+  const celulasPorPosicao = new Map<string, EscalaCelula[]>();
   for (const celula of escalaCelulas) {
-    const lista = celulasPorCadastro.get(celula.cadastro_id) ?? [];
+    const lista = celulasPorPosicao.get(celula.posicao_id) ?? [];
     lista.push(celula);
-    celulasPorCadastro.set(celula.cadastro_id, lista);
+    celulasPorPosicao.set(celula.posicao_id, lista);
   }
 
   const candidatos: Omit<Plantao, 'id' | 'status' | 'gerado_automaticamente'>[] = [];
 
-  for (const cadastro of escalaCadastros) {
-    const celulas = celulasPorCadastro.get(cadastro.id) ?? [];
+  for (const p of escalaPosicoes) {
+    // Vaga aberta não gera plantão: não há a quem atribuir. O dia continua na
+    // escala da equipe, como brecha.
+    if (!p.funcionario_id) continue;
+    const celulas = celulasPorPosicao.get(p.id) ?? [];
+
     for (let d = dia(-21); d <= dia(45); d = somarDias(d, 1)) {
-      const tipoTurnoId = turnoDoDia({ inicio_em: cadastro.inicio_em, celulas }, d);
+      const tipoTurnoId = turnoDoDia({ inicio_em: p.inicio_em, celulas }, d);
       const t = tipoTurnoId ? turnoPorId.get(tipoTurnoId) : undefined;
       if (!t) continue;
 
       if (t.trabalha) {
         candidatos.push({
-          funcionario_id: cadastro.funcionario_id,
+          funcionario_id: p.funcionario_id,
           tipo_turno_id: t.id,
           data: d,
           hora_inicio: t.hora_inicio,
@@ -378,7 +402,7 @@ function gerarPlantoes(): Plantao[] {
       }
       if (t.acionamento !== 'nenhum') {
         candidatos.push({
-          funcionario_id: cadastro.funcionario_id,
+          funcionario_id: p.funcionario_id,
           tipo_turno_id: t.id,
           data: d,
           hora_inicio: t.acionamento_inicio,

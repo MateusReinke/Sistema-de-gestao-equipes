@@ -212,59 +212,57 @@ export function rotasAcoes(app: FastifyInstance): void {
     }
     const sobrescrever = req.body?.sobrescrever === true;
 
-    const funcionarios = await db
-      .select({ id: t.funcionarios.id })
-      .from(t.funcionarios)
-      .where(and(eq(t.funcionarios.equipe_id, equipe.id), ne(t.funcionarios.status, 'desligado')));
-    const funcionarioIds = funcionarios.map((f) => f.id);
-
-    if (funcionarioIds.length === 0) {
-      return reply.send({ criados: 0, atualizados: 0, pulados: 0 });
-    }
-
     /*
-     * Tudo o que a conta precisa: o cadastro de cada pessoa (grade + data
-     * inicial), os ajustes de dia solto e a legenda da equipe. É o mesmo
-     * material que a tela usa — o que se vê no calendário é o que é gravado.
+     * Tudo o que a conta precisa: as posições da equipe (grade + data inicial
+     * + quem ocupa), os ajustes de dia solto e a legenda. É o mesmo material
+     * que a tela usa — o que se vê no calendário é o que é gravado.
      */
-    const [cadastros, excecoes, tiposTurno] = await Promise.all([
+    const [posicoes, tiposTurno] = await Promise.all([
       db
         .select()
-        .from(t.escalaCadastros)
-        .where(inArray(t.escalaCadastros.funcionario_id, funcionarioIds)),
+        .from(t.escalaPosicoes)
+        .where(and(eq(t.escalaPosicoes.equipe_id, equipe.id), eq(t.escalaPosicoes.ativo, true))),
+      db.select().from(t.tiposTurno).where(eq(t.tiposTurno.equipe_id, equipe.id)),
+    ]);
+
+    if (posicoes.length === 0) {
+      return reply.send({ criados: 0, atualizados: 0, pulados: 0, vagas: 0 });
+    }
+    const posicaoIds = posicoes.map((p) => p.id);
+
+    const [celulas, excecoes] = await Promise.all([
+      db.select().from(t.escalaCelulas).where(inArray(t.escalaCelulas.posicao_id, posicaoIds)),
       db
         .select()
         .from(t.escalaExcecoes)
         .where(
           and(
-            inArray(t.escalaExcecoes.funcionario_id, funcionarioIds),
+            inArray(t.escalaExcecoes.posicao_id, posicaoIds),
             gte(t.escalaExcecoes.data, de),
             lte(t.escalaExcecoes.data, ate),
           ),
         ),
-      db.select().from(t.tiposTurno).where(eq(t.tiposTurno.equipe_id, equipe.id)),
     ]);
 
-    const celulas = cadastros.length
-      ? await db
-          .select()
-          .from(t.escalaCelulas)
-          .where(
-            inArray(
-              t.escalaCelulas.cadastro_id,
-              cadastros.map((c) => c.id),
-            ),
-          )
-      : [];
+    // Desligado não cobre nada: a vaga fica aberta e o dia vira brecha, que é
+    // o alerta que interessa — gerar plantão para quem saiu seria pior.
+    const ativos = new Set(
+      (
+        await db
+          .select({ id: t.funcionarios.id })
+          .from(t.funcionarios)
+          .where(ne(t.funcionarios.status, 'desligado'))
+      ).map((f) => f.id),
+    );
 
     const turnoPorId = new Map(tiposTurno.map((x) => [x.id, x]));
-    const excecaoPorDia = new Map(excecoes.map((x) => [`${x.funcionario_id}|${x.data}`, x]));
+    const excecaoPorDia = new Map(excecoes.map((x) => [`${x.posicao_id}|${x.data}`, x]));
 
-    const celulasPorCadastro = new Map<string, typeof celulas>();
+    const celulasPorPosicao = new Map<string, typeof celulas>();
     for (const celula of celulas) {
-      const lista = celulasPorCadastro.get(celula.cadastro_id) ?? [];
+      const lista = celulasPorPosicao.get(celula.posicao_id) ?? [];
       lista.push(celula);
-      celulasPorCadastro.set(celula.cadastro_id, lista);
+      celulasPorPosicao.set(celula.posicao_id, lista);
     }
 
     const dias = diasDoIntervalo(de, ate);
@@ -287,21 +285,43 @@ export function rotasAcoes(app: FastifyInstance): void {
     let criados = 0;
     let atualizados = 0;
     let pulados = 0;
+    /** Dias escalados que ficaram sem ninguém — a brecha, devolvida à tela. */
+    let vagas = 0;
+
+    /** O que a posição faz num dia, já com o ajuste manual por cima. */
+    const turnoDaPosicao = (posicao: (typeof posicoes)[number], data: string) => {
+      const excecao = excecaoPorDia.get(`${posicao.id}|${data}`);
+      if (excecao) return excecao.tipo_turno_id ? turnoPorId.get(excecao.tipo_turno_id) : undefined;
+
+      const grade = celulasPorPosicao.get(posicao.id) ?? [];
+      if (grade.length === 0) return undefined;
+      const id = turnoDoDia({ inicio_em: posicao.inicio_em, celulas: grade }, data);
+      return id ? turnoPorId.get(id) : undefined;
+    };
 
     await db.transaction(async (tx) => {
-      for (const cadastro of cadastros) {
-        const grade = celulasPorCadastro.get(cadastro.id) ?? [];
-        if (grade.length === 0) continue;
+      for (const posicao of posicoes) {
+        const ocupante =
+          posicao.funcionario_id && ativos.has(posicao.funcionario_id)
+            ? posicao.funcionario_id
+            : null;
 
         for (const data of dias) {
-          // O ajuste manual do dia vence o ciclo, e é materializado depois.
-          if (excecaoPorDia.has(`${cadastro.funcionario_id}|${data}`)) continue;
-
-          const tipoTurnoId = turnoDoDia({ inicio_em: cadastro.inicio_em, celulas: grade }, data);
-          const turno = tipoTurnoId ? turnoPorId.get(tipoTurnoId) : undefined;
+          const turno = turnoDaPosicao(posicao, data);
           if (!turno) continue;
 
-          for (const janela of janelasDoTurno(turno)) {
+          const janelas = janelasDoTurno(turno);
+          if (janelas.length === 0) continue; // folga
+
+          if (!ocupante) {
+            // Vaga aberta: não há a quem atribuir o plantão. A escala segue
+            // dizendo que o dia existe — a tela da equipe é que mostra a
+            // brecha, e aqui só contamos para o resumo da geração.
+            vagas += 1;
+            continue;
+          }
+
+          for (const janela of janelas) {
             const [existente] = await tx
               .select({
                 id: t.plantoes.id,
@@ -310,7 +330,7 @@ export function rotasAcoes(app: FastifyInstance): void {
               .from(t.plantoes)
               .where(
                 and(
-                  eq(t.plantoes.funcionario_id, cadastro.funcionario_id),
+                  eq(t.plantoes.funcionario_id, ocupante),
                   eq(t.plantoes.data, data),
                   eq(t.plantoes.hora_inicio, janela.inicio),
                 ),
@@ -337,7 +357,7 @@ export function rotasAcoes(app: FastifyInstance): void {
 
             await tx.insert(t.plantoes).values({
               id: novoId('p'),
-              funcionario_id: cadastro.funcionario_id,
+              funcionario_id: ocupante,
               data,
               hora_inicio: janela.inicio,
               hora_fim: janela.fim,
@@ -350,57 +370,20 @@ export function rotasAcoes(app: FastifyInstance): void {
           }
         }
       }
-
-      /*
-       * O que os ajustes pedem entra por último. Um ajuste sem turno esvazia o
-       * dia: ele simplesmente não gera plantão, e o que uma rodada anterior
-       * tenha criado ali é retirado.
-       */
-      for (const excecao of excecoes) {
-        await tx
-          .delete(t.plantoes)
-          .where(
-            and(
-              eq(t.plantoes.funcionario_id, excecao.funcionario_id),
-              eq(t.plantoes.data, excecao.data),
-              eq(t.plantoes.gerado_automaticamente, true),
-            ),
-          );
-
-        const turno = excecao.tipo_turno_id ? turnoPorId.get(excecao.tipo_turno_id) : undefined;
-        if (!turno) continue;
-
-        for (const janela of janelasDoTurno(turno)) {
-          await tx.insert(t.plantoes).values({
-            id: novoId('p'),
-            funcionario_id: excecao.funcionario_id,
-            tipo_turno_id: turno.id,
-            data: excecao.data,
-            hora_inicio: janela.inicio,
-            hora_fim: janela.fim,
-            tipo: janela.tipo,
-            status: excecao.data < hoje() ? 'confirmado' : 'previsto',
-            // Nasceu de um ajuste manual, mas é a geração que o materializa:
-            // marcar como automático deixa a próxima rodada reconciliar.
-            gerado_automaticamente: true,
-          });
-          criados++;
-        }
-      }
     });
 
     await registrar(sessao, {
       acao: 'criou',
       entidade: 'Plantão (geração em lote)',
       entidade_id: equipe.id,
-      descricao: `${equipe.nome}: ${criados} criados, ${atualizados} atualizados, ${pulados} pulados (${de} a ${ate})`,
+      descricao: `${equipe.nome}: ${criados} criados, ${atualizados} atualizados, ${pulados} pulados, ${vagas} sem ocupante (${de} a ${ate})`,
     });
 
-    return reply.send({ criados, atualizados, pulados });
+    return reply.send({ criados, atualizados, pulados, vagas });
   });
 
   /**
-   * Substitui o ciclo inteiro de uma pessoa, de uma vez.
+   * Substitui o ciclo inteiro de uma posição, de uma vez.
    *
    * A tela pinta a grade célula a célula, e o ciclo cresce e encolhe junto com
    * as semanas preenchidas. Fazer isso pelo CRUD genérico seria um PUT ou
@@ -415,16 +398,16 @@ export function rotasAcoes(app: FastifyInstance): void {
       inicio_em?: string;
       celulas?: { semana: number; dia_semana: number; tipo_turno_id: string }[];
     };
-  }>('/api/funcionarios/:id/ciclo', async (req, reply) => {
+  }>('/api/posicoes/:id/ciclo', async (req, reply) => {
     const sessao = await exigirSessao(req);
-    exigir(ehRh(sessao), 'Só o RH e a administração alteram o cadastro da escala.');
+    exigir(ehRh(sessao), 'Só o RH e a administração alteram a escala de uma posição.');
 
-    const [funcionario] = await db
+    const [posicao] = await db
       .select()
-      .from(t.funcionarios)
-      .where(eq(t.funcionarios.id, req.params.id))
+      .from(t.escalaPosicoes)
+      .where(eq(t.escalaPosicoes.id, req.params.id))
       .limit(1);
-    if (!funcionario) return reply.code(404).send({ erro: 'Funcionário não encontrado.' });
+    if (!posicao) return reply.code(404).send({ erro: 'Posição não encontrada.' });
 
     const inicioEm = req.body?.inicio_em ?? '';
     if (!DATA_ISO.test(inicioEm)) {
@@ -434,9 +417,7 @@ export function rotasAcoes(app: FastifyInstance): void {
     const celulas = req.body?.celulas ?? [];
     const foraDoCiclo = celulas.find((c) => c.semana < 1 || c.semana > MAXIMO_SEMANAS);
     if (foraDoCiclo) {
-      return reply
-        .code(400)
-        .send({ erro: `A semana precisa estar entre 1 e ${MAXIMO_SEMANAS}.` });
+      return reply.code(400).send({ erro: `A semana precisa estar entre 1 e ${MAXIMO_SEMANAS}.` });
     }
     const foraDaSemana = celulas.find((c) => c.dia_semana < 0 || c.dia_semana > 6);
     if (foraDaSemana) {
@@ -446,98 +427,72 @@ export function rotasAcoes(app: FastifyInstance): void {
     }
 
     // Uma célula apontando para turno de outra equipe pintaria uma cor que a
-    // legenda desta equipe não tem — e sumiria do calendário.
+    // legenda desta equipe não tem.
     const legenda = await db
       .select({ id: t.tiposTurno.id })
       .from(t.tiposTurno)
-      .where(eq(t.tiposTurno.equipe_id, funcionario.equipe_id));
+      .where(eq(t.tiposTurno.equipe_id, posicao.equipe_id));
     const daEquipe = new Set(legenda.map((x) => x.id));
     const intrusa = celulas.find((c) => !daEquipe.has(c.tipo_turno_id));
     if (intrusa) {
-      return reply
-        .code(400)
-        .send({ erro: 'Turno não pertence à legenda da equipe desta pessoa.' });
+      return reply.code(400).send({ erro: 'Turno não pertence à legenda da equipe desta posição.' });
     }
 
-    const cadastroId = await db.transaction(async (tx) => {
-      const [existente] = await tx
-        .select()
-        .from(t.escalaCadastros)
-        .where(eq(t.escalaCadastros.funcionario_id, funcionario.id))
-        .limit(1);
-
-      const id = existente?.id ?? novoId('ec');
-      if (existente) {
-        await tx
-          .update(t.escalaCadastros)
-          .set({ inicio_em: inicioEm })
-          .where(eq(t.escalaCadastros.id, id));
-        await tx.delete(t.escalaCelulas).where(eq(t.escalaCelulas.cadastro_id, id));
-      } else {
-        await tx
-          .insert(t.escalaCadastros)
-          .values({ id, funcionario_id: funcionario.id, inicio_em: inicioEm, observacao: '' });
-      }
+    await db.transaction(async (tx) => {
+      await tx
+        .update(t.escalaPosicoes)
+        .set({ inicio_em: inicioEm })
+        .where(eq(t.escalaPosicoes.id, posicao.id));
+      await tx.delete(t.escalaCelulas).where(eq(t.escalaCelulas.posicao_id, posicao.id));
 
       if (celulas.length > 0) {
         await tx.insert(t.escalaCelulas).values(
           celulas.map((c) => ({
             id: novoId('ecl'),
-            cadastro_id: id,
+            posicao_id: posicao.id,
             semana: c.semana,
             dia_semana: c.dia_semana,
             tipo_turno_id: c.tipo_turno_id,
           })),
         );
       }
-      return id;
     });
 
     const semanas = celulas.reduce((maior, c) => Math.max(maior, c.semana), 0);
     await registrar(sessao, {
       acao: 'atualizou',
-      entidade: 'Cadastro de escala',
-      entidade_id: cadastroId,
-      descricao: `${funcionario.nome}: ciclo de ${semanas} semana(s), a partir de ${inicioEm}`,
+      entidade: 'Posição de escala',
+      entidade_id: posicao.id,
+      descricao: `${posicao.nome}: ciclo de ${semanas} semana(s), a partir de ${inicioEm}`,
     });
 
-    return reply.send({ cadastro_id: cadastroId, semanas, celulas: celulas.length });
+    return reply.send({ posicao_id: posicao.id, semanas, celulas: celulas.length });
   });
 
   /**
-   * Apaga o cadastro de escala de uma pessoa — a grade e a data inicial.
+   * Esvazia a grade de uma posição, sem apagar a posição.
    *
-   * É o "limpar e começar de novo": sem cadastro, a pessoa continua na equipe,
-   * só não é projetada em dia nenhum. Os plantões que já foram gerados ficam
-   * onde estão, porque apagá-los junto varreria histórico que outras telas
-   * (trocas, aprovações) ainda referenciam.
+   * A vaga continua existindo — é justamente o que a equipe precisa manter de
+   * pé. Para tirar a posição do quadro de vez, use o CRUD de `escalaPosicoes`.
    */
-  app.delete<{ Params: { id: string } }>('/api/funcionarios/:id/ciclo', async (req, reply) => {
+  app.delete<{ Params: { id: string } }>('/api/posicoes/:id/ciclo', async (req, reply) => {
     const sessao = await exigirSessao(req);
-    exigir(ehRh(sessao), 'Só o RH e a administração apagam o cadastro da escala.');
+    exigir(ehRh(sessao), 'Só o RH e a administração alteram a escala de uma posição.');
 
-    const [funcionario] = await db
+    const [posicao] = await db
       .select()
-      .from(t.funcionarios)
-      .where(eq(t.funcionarios.id, req.params.id))
+      .from(t.escalaPosicoes)
+      .where(eq(t.escalaPosicoes.id, req.params.id))
       .limit(1);
-    if (!funcionario) return reply.code(404).send({ erro: 'Funcionário não encontrado.' });
+    if (!posicao) return reply.code(404).send({ erro: 'Posição não encontrada.' });
 
-    const [cadastro] = await db
-      .select()
-      .from(t.escalaCadastros)
-      .where(eq(t.escalaCadastros.funcionario_id, funcionario.id))
-      .limit(1);
-    if (!cadastro) return reply.send({ apagado: false });
-
-    // As células somem junto, por cascata da FK.
-    await db.delete(t.escalaCadastros).where(eq(t.escalaCadastros.id, cadastro.id));
+    await db.delete(t.escalaCelulas).where(eq(t.escalaCelulas.posicao_id, posicao.id));
 
     await registrar(sessao, {
       acao: 'removeu',
-      entidade: 'Cadastro de escala',
-      entidade_id: cadastro.id,
-      descricao: `Cadastro de escala de ${funcionario.nome} apagado`,
+      entidade: 'Posição de escala',
+      entidade_id: posicao.id,
+      descricao: `Grade de ${posicao.nome} esvaziada`,
     });
 
     return reply.send({ apagado: true });

@@ -1,6 +1,11 @@
 /**
- * O cadastro da escala de uma pessoa — a grade que a planilha tem na aba
+ * A escala de uma posição da equipe — a grade que a planilha tem na aba
  * "Cadastro": uma linha por semana do ciclo, uma coluna por dia da semana.
+ *
+ * A posição é a vaga ("NOC Diurno 1"), e quem a ocupa é escolhido aqui também.
+ * A escala fica na vaga, não na pessoa: trocar o ocupante — ou deixar a vaga
+ * aberta — não mexe no ciclo, e é o que faz a brecha aparecer no calendário em
+ * vez de a linha sumir.
  *
  * A regra que faz tudo funcionar é a mesma da planilha: **o ciclo tem o tamanho
  * das semanas preenchidas e volta sozinho para o começo**. Preencheu só a
@@ -8,9 +13,9 @@
  * calendário já é a Semana 1 de novo. Por isso não existe campo "tamanho do
  * ciclo": acrescentar ou tirar uma linha aqui é o que muda o ciclo.
  *
- * O botão de girar é o que transforma um cadastro num rodízio inteiro: as três
- * pessoas do plantão de infra têm a mesma grade de 3 semanas, cada uma girada
- * de uma posição — é assim na planilha, e é o que faz o backup cair sozinho no
+ * O botão de girar é o que transforma uma posição num rodízio inteiro: as três
+ * vagas do plantão de infra têm a mesma grade de 3 semanas, cada uma girada de
+ * uma semana — é assim na planilha, e é o que faz o backup cair sozinho no
  * lugar certo.
  */
 import { useEffect, useMemo, useState } from 'react';
@@ -25,18 +30,22 @@ import { Avatar } from '@/components/comum';
 import { MAXIMO_SEMANAS, girarCiclo, semanaDoCiclo, turnoDoDia } from '@/lib/cicloEscala';
 import { classeDoTurno, codigoCurto, descricaoDoTurno, type TurnoLegenda } from '@/lib/turnos';
 import { DIAS_SEMANA, formatarDataCurta, hoje, somarDias } from '@/lib/date';
-import type { EscalaCadastro, EscalaCelula, Funcionario } from '@/types/sgo';
+import type { EscalaCelula, EscalaPosicao, Funcionario } from '@/types/sgo';
+
+/** Valor do seletor para "ninguém ocupa esta vaga". */
+const VAGA = 'vaga';
 
 /** Uma célula por gravar: sem id, porque o ciclo inteiro é trocado de uma vez. */
-type CelulaNova = Omit<EscalaCelula, 'id' | 'cadastro_id'>;
+type CelulaNova = Omit<EscalaCelula, 'id' | 'posicao_id'>;
 
 interface Props {
-  pessoa: Funcionario | null;
-  cadastro?: EscalaCadastro;
+  posicao: EscalaPosicao | null;
   celulas: EscalaCelula[];
   legenda: TurnoLegenda[];
-  /** Colegas de equipe, para girar a grade e montar o rodízio de uma vez. */
-  colegas: Funcionario[];
+  /** Quem pode ocupar a vaga — os ativos da equipe. */
+  candidatos: Funcionario[];
+  /** As outras posições da equipe, para girar a grade e montar o rodízio. */
+  outrasPosicoes: EscalaPosicao[];
   aoFechar: () => void;
   /**
    * Garante que a equipe tenha legenda própria antes de gravar. Uma célula
@@ -44,9 +53,11 @@ interface Props {
    * legenda embutida, os ids são só do código.
    */
   garantirLegenda: () => Promise<TurnoLegenda[]>;
-  salvarCiclo: (funcionarioId: string, inicioEm: string, celulas: CelulaNova[]) => Promise<void>;
-  /** Abre a confirmação de exclusão do cadastro, na tela da equipe. */
-  aoExcluir: (pessoa: Funcionario) => void;
+  salvarCiclo: (posicaoId: string, inicioEm: string, celulas: CelulaNova[]) => Promise<void>;
+  /** Grava o nome e o ocupante da posição. */
+  salvarPosicao: (posicao: EscalaPosicao) => Promise<void>;
+  /** Abre a confirmação de esvaziar a grade, na tela da equipe. */
+  aoExcluir: (posicao: EscalaPosicao) => void;
 }
 
 /** `''` na grade quer dizer "este dia não faz parte do ciclo". */
@@ -74,28 +85,33 @@ function celulasDaGrade(grade: Grade): CelulaNova[] {
 }
 
 export function EditorCiclo({
-  pessoa,
-  cadastro,
+  posicao,
   celulas,
   legenda,
-  colegas,
+  candidatos,
+  outrasPosicoes,
   aoFechar,
   garantirLegenda,
   salvarCiclo,
+  salvarPosicao,
   aoExcluir,
 }: Props) {
+  const [nome, setNome] = useState('');
+  const [ocupante, setOcupante] = useState(VAGA);
   const [inicioEm, setInicioEm] = useState('');
   const [grade, setGrade] = useState<Grade>([]);
   const [pincel, setPincel] = useState('');
   const [salvando, setSalvando] = useState(false);
   const [girarPara, setGirarPara] = useState('');
 
-  // Cada pessoa aberta traz o próprio cadastro; remontar o estado ao trocar de
-  // pessoa é o que evita editar a grade de uma e gravar na outra.
-  const chave = `${pessoa?.id ?? ''}|${cadastro?.id ?? ''}|${celulas.length}`;
+  // Cada posição aberta traz a própria grade; remontar o estado ao trocar de
+  // posição é o que evita editar uma e gravar na outra.
+  const chave = `${posicao?.id ?? ''}|${celulas.length}`;
   useEffect(() => {
-    if (!pessoa) return;
-    setInicioEm(cadastro?.inicio_em ?? domingoDestaSemana());
+    if (!posicao) return;
+    setNome(posicao.nome);
+    setOcupante(posicao.funcionario_id ?? VAGA);
+    setInicioEm(posicao.inicio_em || domingoDestaSemana());
     setGrade(celulas.length > 0 ? gradeDeCelulas(celulas) : [Array(7).fill('')]);
     setPincel((atual) => atual || (legenda[0]?.id ?? ''));
     // `chave` já resume a identidade do que precisa remontar a grade.
@@ -115,7 +131,7 @@ export function EditorCiclo({
     });
   }, [grade, inicioEm, turnoPorId]);
 
-  if (!pessoa) return null;
+  if (!posicao) return null;
 
   const semanaAtual = inicioEm ? semanaDoCiclo(inicioEm, hoje(), grade.length) : 0;
 
@@ -164,14 +180,19 @@ export function EditorCiclo({
       tipo_turno_id: idPorRotulo.get(turnoPorId.get(c.tipo_turno_id)?.rotulo ?? '') ?? c.tipo_turno_id,
     }));
 
-    await salvarCiclo(pessoa.id, inicioEm, remapeadas);
+    await salvarPosicao({
+      ...posicao,
+      nome: nome.trim() || posicao.nome,
+      funcionario_id: ocupante === VAGA ? null : ocupante,
+    });
+    await salvarCiclo(posicao.id, inicioEm, remapeadas);
     return propria;
   };
 
   const salvar = async () => {
     setSalvando(true);
     try {
-      if (await gravar()) toast.success(`Escala de ${pessoa.nome} gravada.`);
+      if (await gravar()) toast.success(`Escala de ${nome.trim() || posicao.nome} gravada.`);
     } catch {
       // Erro já virou toast em useDados().
     } finally {
@@ -180,12 +201,12 @@ export function EditorCiclo({
   };
 
   /**
-   * Copia esta grade para um colega, girada em uma semana — o passo que monta
-   * o rodízio. Quem recebe faz, na semana que vem, o que esta pessoa faz agora.
+   * Copia esta grade para outra posição, girada em uma semana — o passo que
+   * monta o rodízio. Quem recebe faz, na semana que vem, o que esta faz agora.
    */
   const girarParaColega = async () => {
-    const colega = colegas.find((c) => c.id === girarPara);
-    if (!colega) return toast.error('Escolha para quem o rodízio continua.');
+    const destino = outrasPosicoes.find((p) => p.id === girarPara);
+    if (!destino) return toast.error('Escolha para qual posição o rodízio continua.');
 
     setSalvando(true);
     try {
@@ -201,8 +222,8 @@ export function EditorCiclo({
         })),
         1,
       );
-      await salvarCiclo(colega.id, inicioEm, girada);
-      toast.success(`${colega.nome} entrou no rodízio, uma semana depois de ${pessoa.nome}.`);
+      await salvarCiclo(destino.id, inicioEm, girada);
+      toast.success(`${destino.nome} entrou no rodízio, uma semana depois de ${posicao.nome}.`);
       setGirarPara('');
     } catch {
       // Erro já virou toast em useDados().
@@ -215,13 +236,41 @@ export function EditorCiclo({
     <Sheet open onOpenChange={(v) => !v && aoFechar()}>
       <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
         <SheetHeader>
-          <SheetTitle className="flex items-center gap-2.5">
-            <Avatar nome={pessoa.nome} tamanho="sm" />
-            <span className="truncate">{pessoa.nome}</span>
-          </SheetTitle>
+          <SheetTitle className="truncate">{posicao.nome}</SheetTitle>
         </SheetHeader>
 
         <div className="mt-6 space-y-5">
+          <div className="space-y-1.5">
+            <Label htmlFor="nome-posicao">Nome da posição</Label>
+            <Input
+              id="nome-posicao"
+              value={nome}
+              onChange={(e) => setNome(e.target.value)}
+              placeholder="Ex.: NOC Noturno 1"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Quem ocupa</Label>
+            <Select value={ocupante} onValueChange={setOcupante}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={VAGA}>Vaga aberta</SelectItem>
+                {candidatos.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              A escala é da posição, não da pessoa. Deixar a vaga aberta — ou desligar quem a ocupa
+              — mantém o ciclo rodando e faz os dias virarem alerta de brecha no calendário.
+            </p>
+          </div>
+
           <div className="space-y-1.5">
             <Label htmlFor="inicio-ciclo">O rodízio começa em</Label>
             <Input
@@ -234,7 +283,7 @@ export function EditorCiclo({
               Só a semana desta data conta, não o dia. A <strong>Semana 1</strong> da grade é a
               semana seguinte a ela.
               {grade.length > 0 && semanaAtual > 0 && (
-                <> Hoje, {pessoa.nome.split(' ')[0]} está na <strong>Semana {semanaAtual}</strong>.</>
+                <> Hoje, esta posição está na <strong>Semana {semanaAtual}</strong>.</>
               )}
             </p>
           </div>
@@ -366,25 +415,25 @@ export function EditorCiclo({
           )}
 
           {/* ------------------------------------------------------ rodízio */}
-          {colegas.length > 0 && (
+          {outrasPosicoes.length > 0 && (
             <div className="space-y-1.5 rounded-lg border bg-muted/30 p-3">
               <Label className="flex items-center gap-1.5">
-                <RotateCw className="h-3.5 w-3.5" /> Continuar o rodízio em outra pessoa
+                <RotateCw className="h-3.5 w-3.5" /> Continuar o rodízio em outra posição
               </Label>
               <p className="text-xs text-muted-foreground">
-                Copia esta grade girada em uma semana: o que {pessoa.nome.split(' ')[0]} faz nesta
-                semana, a outra pessoa faz na próxima. É assim que o par 12×36 e o plantão com
-                backup se fecham sozinhos.
+                Copia esta grade girada em uma semana: o que esta posição faz nesta semana, a
+                outra faz na próxima. É assim que o par 12×36 e o plantão com backup se fecham
+                sozinhos.
               </p>
               <div className="flex gap-2">
                 <Select value={girarPara} onValueChange={setGirarPara}>
                   <SelectTrigger className="flex-1">
-                    <SelectValue placeholder="Quem entra depois" />
+                    <SelectValue placeholder="Qual posição entra depois" />
                   </SelectTrigger>
                   <SelectContent>
-                    {colegas.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.nome}
+                    {outrasPosicoes.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.nome}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -405,16 +454,16 @@ export function EditorCiclo({
             </Button>
           </div>
 
-          {cadastro && (
+          {celulas.length > 0 && (
             <Button
               variant="outline"
               className="w-full border-destructive/40 text-destructive hover:bg-destructive/10"
               onClick={() => {
                 aoFechar();
-                aoExcluir(pessoa);
+                aoExcluir(posicao);
               }}
             >
-              <Trash2 className="mr-2 h-4 w-4" /> Excluir cadastro
+              <Trash2 className="mr-2 h-4 w-4" /> Esvaziar a grade
             </Button>
           )}
         </div>

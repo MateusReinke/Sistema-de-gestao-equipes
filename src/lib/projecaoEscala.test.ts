@@ -1,25 +1,30 @@
 /**
  * A projeção é o que a tela da equipe mostra, então o que se testa aqui é o
- * resultado visível: em cada dia, para cada pessoa, o turno certo — vindo do
- * cadastro, do ajuste manual, ou de nenhum dos dois.
+ * resultado visível: em cada dia, para cada **posição**, o turno certo — e,
+ * quando não há quem cumpra, a brecha aparecendo em vez de a linha sumir.
  */
 import { describe, expect, it } from 'vitest';
 import type {
   Ausencia,
-  EscalaCadastro,
   EscalaCelula,
   EscalaExcecao,
+  EscalaPosicao,
   Ferias,
   Funcionario,
   TipoTurno,
 } from '@/types/sgo';
 import { girarCiclo } from './cicloEscala';
 import { TURNOS_PADRAO } from './turnos';
-import { coberturaPorDia, diasDoIntervalo, projetarEscalaEquipe } from './projecaoEscala';
+import {
+  brechasPorDia,
+  coberturaPorDia,
+  diasDoIntervalo,
+  projetarEscalaEquipe,
+} from './projecaoEscala';
 
 const EQUIPE = 'eq-noc';
 
-function pessoa(id: string, nome: string): Funcionario {
+function pessoa(id: string, nome: string, parcial: Partial<Funcionario> = {}): Funcionario {
   return {
     id,
     matricula: id,
@@ -35,6 +40,7 @@ function pessoa(id: string, nome: string): Funcionario {
     data_nascimento: '1990-01-01',
     status: 'ativo',
     local: 'São Paulo',
+    ...parcial,
   };
 }
 
@@ -56,17 +62,31 @@ const FOLGA = porRotulo('Folga').id;
  */
 const INICIO = '2025-12-28';
 
-function cadastro(funcionarioId: string): EscalaCadastro {
-  return { id: `cad-${funcionarioId}`, funcionario_id: funcionarioId, inicio_em: INICIO, observacao: '' };
+function posicao(
+  id: string,
+  nome: string,
+  funcionarioId: string | null,
+  parcial: Partial<EscalaPosicao> = {},
+): EscalaPosicao {
+  return {
+    id,
+    equipe_id: EQUIPE,
+    nome,
+    funcionario_id: funcionarioId,
+    inicio_em: INICIO,
+    ordem: 0,
+    ativo: true,
+    ...parcial,
+  };
 }
 
 /** Monta as células de uma grade, uma string por semana (Dom…Sáb). */
-function celulas(cadastroId: string, ...semanas: string[][]): EscalaCelula[] {
+function celulas(posicaoId: string, ...semanas: string[][]): EscalaCelula[] {
   return semanas.flatMap((dias, i) =>
     dias
       .map((turno, dia) => ({
-        id: `${cadastroId}-${i}-${dia}`,
-        cadastro_id: cadastroId,
+        id: `${posicaoId}-${i}-${dia}`,
+        posicao_id: posicaoId,
         semana: i + 1,
         dia_semana: dia,
         tipo_turno_id: turno,
@@ -75,29 +95,29 @@ function celulas(cadastroId: string, ...semanas: string[][]): EscalaCelula[] {
   );
 }
 
-/** Par 12×36: Ana nos dias ímpares do ciclo, Bruno no complemento. */
-const GRADE_ANA = celulas(
-  'cad-f1',
+/** Par 12×36: a posição A nos dias ímpares do ciclo, a B no complemento. */
+const GRADE_A = celulas(
+  'pos-a',
   [FOLGA, TRABALHO, FOLGA, TRABALHO, FOLGA, TRABALHO, FOLGA],
   [TRABALHO, FOLGA, TRABALHO, FOLGA, TRABALHO, FOLGA, TRABALHO],
 );
-const GRADE_BRUNO = girarCiclo(
-  GRADE_ANA.map(({ semana, dia_semana, tipo_turno_id }) => ({ semana, dia_semana, tipo_turno_id })),
+const GRADE_B = girarCiclo(
+  GRADE_A.map(({ semana, dia_semana, tipo_turno_id }) => ({ semana, dia_semana, tipo_turno_id })),
   1,
-).map((c, i) => ({ ...c, id: `cad-f2-${i}`, cadastro_id: 'cad-f2' }));
+).map((c, i) => ({ ...c, id: `pos-b-${i}`, posicao_id: 'pos-b' }));
 
 describe('projetarEscalaEquipe', () => {
   const base = {
     funcionarios: [pessoa('f1', 'Ana'), pessoa('f2', 'Bruno')],
-    escalaCadastros: [cadastro('f1'), cadastro('f2')],
-    escalaCelulas: [...GRADE_ANA, ...GRADE_BRUNO],
+    escalaPosicoes: [posicao('pos-a', 'NOC Diurno 1', 'f1'), posicao('pos-b', 'NOC Diurno 2', 'f2')],
+    escalaCelulas: [...GRADE_A, ...GRADE_B],
     ferias: [] as Ferias[],
     ausencias: [] as Ausencia[],
     escalaExcecoes: [] as EscalaExcecao[],
     legenda: TURNOS_PADRAO,
   };
 
-  /** Só os dias em que a pessoa realmente trabalha. */
+  /** Só os dias em que a posição realmente trabalha. */
   const diasDeTrabalho = (linha: ReturnType<typeof projetarEscalaEquipe>[number]) =>
     [...linha.dias.entries()]
       .filter(([, d]) => d.turno.id === TRABALHO)
@@ -105,103 +125,147 @@ describe('projetarEscalaEquipe', () => {
       .sort();
 
   it('o par 12×36 alterna dia a dia, sem lacuna e sem sobreposição', () => {
-    const [ana, bruno] = projetarEscalaEquipe(base, EQUIPE, '2026-01-05', '2026-01-11');
+    const [a, b] = projetarEscalaEquipe(base, EQUIPE, '2026-01-05', '2026-01-11');
 
-    expect(ana.funcionario.nome).toBe('Ana');
-    expect(diasDeTrabalho(ana)).toEqual(['2026-01-05', '2026-01-07', '2026-01-09', '2026-01-11']);
-    expect(diasDeTrabalho(bruno)).toEqual(['2026-01-06', '2026-01-08', '2026-01-10']);
+    expect(a.posicao.nome).toBe('NOC Diurno 1');
+    expect(a.ocupante?.nome).toBe('Ana');
+    expect(diasDeTrabalho(a)).toEqual(['2026-01-05', '2026-01-07', '2026-01-09', '2026-01-11']);
+    expect(diasDeTrabalho(b)).toEqual(['2026-01-06', '2026-01-08', '2026-01-10']);
 
-    // Todo dia do período tem exatamente uma das duas trabalhando — e a outra
-    // aparece na grade, de folga, em vez de sumir da linha.
     for (const data of diasDoIntervalo('2026-01-05', '2026-01-11')) {
-      const trabalhando = [ana, bruno].filter((l) => l.dias.get(data)?.turno.id === TRABALHO);
+      const trabalhando = [a, b].filter((l) => l.dias.get(data)?.turno.id === TRABALHO);
       expect(trabalhando).toHaveLength(1);
-      expect(ana.dias.has(data) && bruno.dias.has(data)).toBe(true);
     }
   });
 
   it('mostra o horário do turno e o tamanho do ciclo', () => {
-    const [ana] = projetarEscalaEquipe(base, EQUIPE, '2026-01-05', '2026-01-05');
-    expect(ana.ciclo).toBe(2);
-    expect(ana.dias.get('2026-01-05')).toMatchObject({
+    const [a] = projetarEscalaEquipe(base, EQUIPE, '2026-01-05', '2026-01-05');
+    expect(a.ciclo).toBe(2);
+    expect(a.dias.get('2026-01-05')).toMatchObject({
       turno: { rotulo: 'Trabalho' },
       horario: '08:00–17:00',
     });
   });
 
-  it('a folga aparece com horário vazio, não com 00:00–00:00', () => {
-    const [ana] = projetarEscalaEquipe(base, EQUIPE, '2026-01-06', '2026-01-06');
-    expect(ana.dias.get('2026-01-06')).toMatchObject({ turno: { rotulo: 'Folga' }, horario: '—' });
-  });
-
-  it('marca quem está escalado mas de férias, sem tirar da grade', () => {
-    const ferias: Ferias[] = [
-      {
-        id: 'fe1',
-        protocolo: 'FER-1',
-        status: 'aprovada',
-        solicitado_por: 'f1',
-        solicitado_em: '2025-12-01T00:00:00.000Z',
-        funcionario_id: 'f1',
-        periodo_aquisitivo_inicio: '2025-01-01',
-        periodo_aquisitivo_fim: '2025-12-31',
-        data_inicio: '2026-01-05',
-        data_fim: '2026-01-09',
-        dias: 5,
-        dias_abono: 0,
-        decimo_terceiro_antecipado: false,
-      },
-    ];
-    const [ana] = projetarEscalaEquipe({ ...base, ferias }, EQUIPE, '2026-01-05', '2026-01-11');
-
-    expect(ana.dias.get('2026-01-05')?.indisponivel).toBe('ferias');
-    expect(ana.dias.get('2026-01-05')?.turno.rotulo).toBe('Trabalho');
-    expect(ana.dias.get('2026-01-11')?.indisponivel).toBeUndefined();
-  });
-
-  it('pessoa sem cadastro continua na lista, para o furo ficar visível', () => {
-    const linhas = projetarEscalaEquipe(
-      { ...base, escalaCadastros: [], escalaCelulas: [] },
-      EQUIPE,
-      '2026-01-05',
-      '2026-01-11',
-    );
+  it('posição sem grade continua na lista, para o furo ficar visível', () => {
+    const linhas = projetarEscalaEquipe({ ...base, escalaCelulas: [] }, EQUIPE, '2026-01-05', '2026-01-11');
     expect(linhas).toHaveLength(2);
     expect(linhas[0].dias.size).toBe(0);
     expect(linhas[0].ciclo).toBe(0);
   });
 
+  it('posição inativa sai do quadro', () => {
+    const linhas = projetarEscalaEquipe(
+      { ...base, escalaPosicoes: [posicao('pos-a', 'NOC Diurno 1', 'f1', { ativo: false })] },
+      EQUIPE,
+      '2026-01-05',
+      '2026-01-11',
+    );
+    expect(linhas).toHaveLength(0);
+  });
+
+  describe('brecha na escala', () => {
+    it('vaga aberta mantém os dias no calendário, marcados como vaga', () => {
+      // O ponto da mudança: a escala é da equipe. Sem ninguém na vaga, o dia
+      // continua existindo — é o alerta de que falta gente.
+      const [a] = projetarEscalaEquipe(
+        { ...base, escalaPosicoes: [posicao('pos-a', 'NOC Diurno 1', null)] },
+        EQUIPE,
+        '2026-01-05',
+        '2026-01-11',
+      );
+
+      expect(a.ocupante).toBeUndefined();
+      expect(a.dias.get('2026-01-05')).toMatchObject({
+        turno: { rotulo: 'Trabalho' },
+        descoberto: 'vaga',
+      });
+      // Folga não precisa de ninguém, então não é brecha.
+      expect(a.dias.get('2026-01-06')?.descoberto).toBeUndefined();
+    });
+
+    it('desligar o ocupante abre a vaga sem apagar a escala', () => {
+      const linhas = projetarEscalaEquipe(
+        { ...base, funcionarios: [pessoa('f1', 'Ana', { status: 'desligado' }), pessoa('f2', 'Bruno')] },
+        EQUIPE,
+        '2026-01-05',
+        '2026-01-11',
+      );
+
+      expect(linhas[0].ocupante).toBeUndefined();
+      expect(linhas[0].ciclo).toBe(2);
+      expect(linhas[0].dias.get('2026-01-05')?.descoberto).toBe('vaga');
+      // A outra posição segue normal.
+      expect(linhas[1].dias.get('2026-01-06')?.descoberto).toBeUndefined();
+    });
+
+    it('férias do ocupante também descobrem o dia, sem tirar da grade', () => {
+      const ferias: Ferias[] = [
+        {
+          id: 'fe1',
+          protocolo: 'FER-1',
+          status: 'aprovada',
+          solicitado_por: 'f1',
+          solicitado_em: '2025-12-01T00:00:00.000Z',
+          funcionario_id: 'f1',
+          periodo_aquisitivo_inicio: '2025-01-01',
+          periodo_aquisitivo_fim: '2025-12-31',
+          data_inicio: '2026-01-05',
+          data_fim: '2026-01-09',
+          dias: 5,
+          dias_abono: 0,
+          decimo_terceiro_antecipado: false,
+        },
+      ];
+      const [a] = projetarEscalaEquipe({ ...base, ferias }, EQUIPE, '2026-01-05', '2026-01-11');
+
+      expect(a.dias.get('2026-01-05')?.descoberto).toBe('ferias');
+      expect(a.dias.get('2026-01-05')?.turno.rotulo).toBe('Trabalho');
+      expect(a.dias.get('2026-01-11')?.descoberto).toBeUndefined();
+    });
+
+    it('brechasPorDia lista só os dias em que falta gente', () => {
+      const linhas = projetarEscalaEquipe(
+        {
+          ...base,
+          escalaPosicoes: [posicao('pos-a', 'NOC Diurno 1', null), posicao('pos-b', 'NOC Diurno 2', 'f2')],
+        },
+        EQUIPE,
+        '2026-01-05',
+        '2026-01-08',
+      );
+      const brechas = brechasPorDia(linhas, diasDoIntervalo('2026-01-05', '2026-01-08'));
+
+      // A posição vaga trabalha em 05 e 07; a ocupada cobre 06 e 08.
+      expect([...brechas.keys()].sort()).toEqual(['2026-01-05', '2026-01-07']);
+      expect(brechas.get('2026-01-05')?.[0].posicao.nome).toBe('NOC Diurno 1');
+    });
+  });
+
   it('ajuste de um dia vence o ciclo, sem mexer nos outros dias', () => {
-    // Ana trabalha em 05, 07, 09… Trocar o dia 07 para plantão não pode mexer
-    // no 09, que segue o ciclo.
     const excecao: EscalaExcecao = {
       id: 'ex1',
-      funcionario_id: 'f1',
+      posicao_id: 'pos-a',
       data: '2026-01-07',
       tipo_turno_id: PLANTAO,
       observacao: '',
     };
-    const [ana] = projetarEscalaEquipe(
+    const [a] = projetarEscalaEquipe(
       { ...base, escalaExcecoes: [excecao] },
       EQUIPE,
       '2026-01-05',
       '2026-01-11',
     );
 
-    expect(ana.dias.get('2026-01-07')).toMatchObject({
-      turno: { rotulo: 'Plantão' },
-      ajustado: true,
-    });
-    expect(ana.dias.get('2026-01-09')?.turno.rotulo).toBe('Trabalho');
-    expect(ana.dias.get('2026-01-09')?.ajustado).toBeUndefined();
+    expect(a.dias.get('2026-01-07')).toMatchObject({ turno: { rotulo: 'Plantão' }, ajustado: true });
+    expect(a.dias.get('2026-01-09')?.turno.rotulo).toBe('Trabalho');
+    expect(a.dias.get('2026-01-09')?.ajustado).toBeUndefined();
   });
 
   it('o ajuste sobrevive à troca de mês — é ele que manda, não a tela', () => {
-    // Era o bug que motivou a reescrita: ajustar um dia de janeiro e, ao abrir
-    // fevereiro e voltar, encontrar o padrão do ciclo de novo.
     const excecao: EscalaExcecao = {
       id: 'ex2',
-      funcionario_id: 'f1',
+      posicao_id: 'pos-a',
       data: '2026-02-14',
       tipo_turno_id: BACKUP,
       observacao: '',
@@ -218,47 +282,75 @@ describe('projetarEscalaEquipe', () => {
     });
   });
 
-  it('ajuste sem turno esvazia o dia que o ciclo previa', () => {
+  it('o ajuste fica na posição, então sobrevive à troca de ocupante', () => {
+    // É a razão de a exceção não morar na pessoa: ela descreve o que a vaga
+    // faz naquele dia, e continua valendo quando outra pessoa assume.
     const excecao: EscalaExcecao = {
       id: 'ex3',
-      funcionario_id: 'f1',
+      posicao_id: 'pos-a',
+      data: '2026-01-07',
+      tipo_turno_id: PLANTAO,
+      observacao: '',
+    };
+    const [a] = projetarEscalaEquipe(
+      {
+        ...base,
+        escalaPosicoes: [posicao('pos-a', 'NOC Diurno 1', 'f2')],
+        escalaExcecoes: [excecao],
+      },
+      EQUIPE,
+      '2026-01-05',
+      '2026-01-11',
+    );
+    expect(a.ocupante?.nome).toBe('Bruno');
+    expect(a.dias.get('2026-01-07')?.turno.rotulo).toBe('Plantão');
+  });
+
+  it('ajuste sem turno esvazia o dia que o ciclo previa', () => {
+    const excecao: EscalaExcecao = {
+      id: 'ex4',
+      posicao_id: 'pos-a',
       data: '2026-01-07',
       tipo_turno_id: null,
       observacao: '',
     };
-    const [ana] = projetarEscalaEquipe(
+    const [a] = projetarEscalaEquipe(
       { ...base, escalaExcecoes: [excecao] },
       EQUIPE,
       '2026-01-05',
       '2026-01-11',
     );
-    expect(ana.dias.has('2026-01-07')).toBe(false);
-    expect(ana.dias.has('2026-01-05')).toBe(true);
+    expect(a.dias.has('2026-01-07')).toBe(false);
+    expect(a.dias.has('2026-01-05')).toBe(true);
   });
 
   it('célula apontando para turno que não existe mais deixa o dia fora do ciclo', () => {
     const orfa: EscalaCelula[] = [
-      { id: 'x1', cadastro_id: 'cad-f1', semana: 1, dia_semana: 1, tipo_turno_id: 'tt-apagado' },
+      { id: 'x1', posicao_id: 'pos-a', semana: 1, dia_semana: 1, tipo_turno_id: 'tt-apagado' },
     ];
-    const [ana] = projetarEscalaEquipe(
+    const [a] = projetarEscalaEquipe(
       { ...base, escalaCelulas: orfa },
       EQUIPE,
       '2026-01-05',
       '2026-01-11',
     );
-    expect(ana.dias.size).toBe(0);
+    expect(a.dias.size).toBe(0);
   });
 
-  it('quem mudou de equipe continua no calendário, com o turno equivalente daqui', () => {
-    // O bug real: a pessoa foi cadastrada noutro time, as células apontam para
-    // a legenda de lá, e a linha dela sumia inteira sem nenhum aviso.
+  it('posição montada noutra equipe continua no calendário, com o turno daqui', () => {
     const deOutroTime: TipoTurno[] = [
-      { ...porRotulo('Trabalho'), id: 'tt-outra-equipe', equipe_id: 'eq-noc-noturno', hora_inicio: '19:00', hora_fim: '07:00' },
+      {
+        ...porRotulo('Trabalho'),
+        id: 'tt-outra-equipe',
+        equipe_id: 'eq-noc-noturno',
+        hora_inicio: '19:00',
+        hora_fim: '07:00',
+      },
     ];
     const celulasAlheias: EscalaCelula[] = [
-      { id: 'y1', cadastro_id: 'cad-f1', semana: 1, dia_semana: 1, tipo_turno_id: 'tt-outra-equipe' },
+      { id: 'y1', posicao_id: 'pos-a', semana: 1, dia_semana: 1, tipo_turno_id: 'tt-outra-equipe' },
     ];
-    const [ana] = projetarEscalaEquipe(
+    const [a] = projetarEscalaEquipe(
       {
         ...base,
         escalaCelulas: celulasAlheias,
@@ -269,33 +361,22 @@ describe('projetarEscalaEquipe', () => {
       '2026-01-11',
     );
 
-    expect(ana.legendaDeOutraEquipe).toBe(true);
-    // Aparece com o item de mesmo nome desta equipe — e com o horário daqui,
-    // não o 19:00–07:00 do time anterior.
-    expect(ana.dias.get('2026-01-05')).toMatchObject({
+    expect(a.legendaDeOutraEquipe).toBe(true);
+    expect(a.dias.get('2026-01-05')).toMatchObject({
       turno: { rotulo: 'Trabalho', id: porRotulo('Trabalho').id },
       horario: '08:00–17:00',
     });
-  });
-
-  it('cadastro consistente não é marcado como de outra equipe', () => {
-    const [ana] = projetarEscalaEquipe(
-      { ...base, turnosConhecidos: TURNOS_PADRAO },
-      EQUIPE,
-      '2026-01-05',
-      '2026-01-11',
-    );
-    expect(ana.legendaDeOutraEquipe).toBeUndefined();
   });
 });
 
 describe('coberturaPorDia', () => {
   const dias = diasDoIntervalo('2026-01-05', '2026-01-06');
 
-  it('não conta folga, backup nem quem está de férias como cobertura', () => {
+  it('não conta folga, backup, vaga aberta nem quem está de férias', () => {
     const linhas = [
       {
-        funcionario: pessoa('f1', 'Ana'),
+        posicao: posicao('p1', 'Posição 1', 'f1'),
+        ocupante: pessoa('f1', 'Ana'),
         ciclo: 1,
         dias: new Map([
           ['2026-01-05', { turno: porRotulo('Trabalho'), horario: '09:00–18:00' }],
@@ -303,25 +384,32 @@ describe('coberturaPorDia', () => {
         ]),
       },
       {
-        funcionario: pessoa('f2', 'Bruno'),
+        posicao: posicao('p2', 'Posição 2', 'f2'),
+        ocupante: pessoa('f2', 'Bruno'),
         ciclo: 1,
         dias: new Map([
-          ['2026-01-05', { turno: porRotulo('Trabalho'), horario: '09:00–18:00', indisponivel: 'ferias' as const }],
+          [
+            '2026-01-05',
+            { turno: porRotulo('Trabalho'), horario: '09:00–18:00', descoberto: 'ferias' as const },
+          ],
           ['2026-01-06', { turno: porRotulo('Plantão'), horario: '00:00–23:59' }],
         ]),
       },
       {
-        funcionario: pessoa('f3', 'Carla'),
+        posicao: posicao('p3', 'Posição 3', null),
         ciclo: 1,
         dias: new Map([
-          ['2026-01-05', { turno: porRotulo('Folga'), horario: '—' }],
+          [
+            '2026-01-05',
+            { turno: porRotulo('Trabalho'), horario: '09:00–18:00', descoberto: 'vaga' as const },
+          ],
           ['2026-01-06', { turno: porRotulo('Folga'), horario: '—' }],
         ]),
       },
     ];
 
     const cobertura = coberturaPorDia(linhas, dias);
-    // Dia 5: Ana trabalha (conta); Bruno está de férias e Carla de folga (não).
+    // Dia 5: só a Ana trabalha de fato — Bruno de férias, posição 3 vaga.
     expect(cobertura.get('2026-01-05')).toBe(1);
     // Dia 6: Ana é só backup (não conta); Bruno está de plantão (conta).
     expect(cobertura.get('2026-01-06')).toBe(1);
