@@ -7,7 +7,6 @@
  */
 import type {
   Ausencia,
-  Equipe,
   Ferias,
   Funcionario,
   IsoDate,
@@ -374,38 +373,6 @@ export function plantoesEmCurso(
 }
 
 /** Equipes cuja escala do dia fica abaixo da cobertura mínima acordada. */
-export function equipesSemCobertura(contexto: {
-  equipes: Equipe[];
-  funcionarios: Funcionario[];
-  plantoes: Plantao[];
-  ferias: Ferias[];
-  ausencias: Ausencia[];
-  data?: IsoDate;
-}): { equipe: Equipe; escalados: number; faltam: number }[] {
-  const dia = contexto.data ?? hoje();
-  const descobertos = new Set(
-    plantoesDescobertos({ ...contexto, aPartirDe: dia }).map((d) => d.plantao.id),
-  );
-  const equipePorFuncionario = new Map(contexto.funcionarios.map((f) => [f.id, f.equipe_id]));
-
-  return contexto.equipes
-    .filter((e) => e.ativo)
-    .map((equipe) => {
-      const escalados = contexto.plantoes.filter(
-        (p) =>
-          p.data === dia &&
-          p.status !== 'trocado' &&
-          // Backup é segunda linha — só entra se quem está de plantão não
-          // atender. Contá-lo como cobertura esconderia o furo real.
-          p.tipo !== 'backup' &&
-          !descobertos.has(p.id) &&
-          equipePorFuncionario.get(p.funcionario_id) === equipe.id,
-      ).length;
-      return { equipe, escalados, faltam: equipe.cobertura_minima - escalados };
-    })
-    .filter((r) => r.faltam > 0);
-}
-
 /* -------------------------------------------------------------- pessoas */
 
 export function idade(dataNascimento: IsoDate, referencia: IsoDate = hoje()): number {

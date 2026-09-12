@@ -13,7 +13,7 @@ import { Avatar, Aviso, BadgeStatus, CabecalhoPagina, EstadoVazio } from '@/comp
 import { SeletorDepartamento } from '@/components/organizacao/SeletorDepartamento';
 import { useDados, novoId } from '@/data/store';
 import { useAuth } from '@/contexts/AuthContext';
-import { equipesSemCobertura } from '@/lib/rh';
+import { agendaDoPeriodo, equipesSemCoberturaNoDia } from '@/lib/agendaPlantoes';
 import { hoje } from '@/lib/date';
 import type { Equipe } from '@/types/sgo';
 
@@ -25,6 +25,10 @@ export default function EquipesPage() {
     atendimentoEquipes,
     departamentos,
     plantoes,
+    escalaPosicoes,
+    escalaCelulas,
+    escalaExcecoes,
+    tiposTurno,
     ferias,
     ausencias,
     salvarEquipe,
@@ -46,18 +50,32 @@ export default function EquipesPage() {
     return visiveis.filter((e) => e.nome.toLowerCase().includes(termo));
   }, [visiveis, busca]);
 
-  const descobertas = useMemo(
-    () =>
-      new Map(
-        equipesSemCobertura({ equipes, funcionarios, plantoes, ferias, ausencias }).map((s) => [
-          s.equipe.id,
-          s,
-        ]),
-      ),
-    [equipes, funcionarios, plantoes, ferias, ausencias],
-  );
-
   const hojeIso = hoje();
+
+  /**
+   * Cobertura de hoje pela mesma conta da tela da equipe: a escala projetada,
+   * e não só o que já foi gerado em `plantoes` — ver `@/lib/agendaPlantoes`.
+   */
+  const descobertas = useMemo(() => {
+    const agenda = agendaDoPeriodo(
+      {
+        equipes,
+        funcionarios,
+        escalaPosicoes,
+        escalaCelulas,
+        escalaExcecoes,
+        tiposTurno,
+        plantoes,
+        ferias,
+        ausencias,
+      },
+      hojeIso,
+      hojeIso,
+    );
+    return new Map(
+      equipesSemCoberturaNoDia(agenda, equipes, hojeIso).map((s) => [s.equipe.id, s]),
+    );
+  }, [equipes, funcionarios, escalaPosicoes, escalaCelulas, escalaExcecoes, tiposTurno, plantoes, ferias, ausencias, hojeIso]);
 
   const abrirNova = () => {
     setEmEdicao({

@@ -22,7 +22,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Avatar, Aviso, BadgeStatus, CabecalhoPagina, EstadoVazio, Indicador } from '@/components/comum';
 import { useDados, novoId, proximoProtocolo } from '@/data/store';
 import { useAuth } from '@/contexts/AuthContext';
-import { equipesSemCobertura, plantoesDescobertos, plantoesEmCurso } from '@/lib/rh';
+import {
+  agendaDoPeriodo,
+  brechasDaAgenda,
+  cobre,
+  equipesSemCoberturaNoDia,
+  pendentesDeGeracao,
+  type ItemAgenda,
+} from '@/lib/agendaPlantoes';
+import { turnoCobreMinuto } from '@/lib/date';
 import {
   DIAS_SEMANA,
   agora,
@@ -42,11 +50,29 @@ import {
 } from '@/lib/labels';
 import type { Plantao, TipoPlantao, TrocaPlantao } from '@/types/sgo';
 
+/** Por que o turno está sem ninguém, em palavras. */
+const MOTIVO_BRECHA: Record<string, string> = {
+  vaga: 'Vaga aberta',
+  ferias: 'Ocupante de férias',
+  ausencia: 'Ocupante afastado',
+};
+
+/** Em que pé o turno está: o registro gravado, ou "só previsto pela escala". */
+function situacaoDoItem(item: ItemAgenda): string {
+  if (item.descoberto) return MOTIVO_BRECHA[item.descoberto];
+  if (item.plantao) return STATUS_PLANTAO[item.plantao.status];
+  return 'Previsto pela escala';
+}
+
 export default function PlantoesPage() {
   const {
     plantoes,
     funcionarios,
     equipes,
+    escalaPosicoes,
+    escalaCelulas,
+    escalaExcecoes,
+    tiposTurno,
     ferias,
     ausencias,
     salvarPlantao,
@@ -72,7 +98,7 @@ export default function PlantoesPage() {
   const [sobrescreverGerar, setSobrescreverGerar] = useState(false);
   const [gerando, setGerando] = useState(false);
   const [resultadoGerar, setResultadoGerar] = useState<
-    { criados: number; atualizados: number; pulados: number } | null
+    { criados: number; atualizados: number; pulados: number; vagas: number } | null
   >(null);
 
   const ano = mesAtual.getFullYear();
@@ -82,34 +108,72 @@ export default function PlantoesPage() {
   const nomeDe = (id: string) => funcionarios.find((f) => f.id === id)?.nome ?? '—';
   const equipeDoFuncionario = (id: string) => funcionarios.find((f) => f.id === id)?.equipe_id;
 
-  /** Plantões dentro do alcance do usuário e do filtro de equipe. */
-  const visiveis = useMemo(() => {
-    const equipePorFuncionario = new Map(funcionarios.map((f) => [f.id, f.equipe_id]));
-    return plantoes.filter((p) => {
-      const equipe = equipePorFuncionario.get(p.funcionario_id);
-      if (equipesVisiveis !== null && (!equipe || !equipesVisiveis.includes(equipe))) return false;
-      if (filtroEquipe !== 'todas' && equipe !== filtroEquipe) return false;
+  const primeiroDoMes = `${ano}-${String(mes + 1).padStart(2, '0')}-01`;
+  const ultimoDoMes = paraIso(new Date(ano, mes + 1, 0));
+
+  /**
+   * O contexto da agenda: a escala das equipes mais o que já foi materializado.
+   *
+   * É a mesma projeção que a tela da equipe usa. Antes esta tela lia só a
+   * tabela `plantoes`, então um mês que ninguém tinha gerado aparecia vazio
+   * aqui e cheio lá — ver `@/lib/agendaPlantoes`.
+   */
+  const contextoAgenda = useMemo(
+    () => ({
+      equipes,
+      funcionarios,
+      escalaPosicoes,
+      escalaCelulas,
+      escalaExcecoes,
+      tiposTurno,
+      plantoes,
+      ferias,
+      ausencias,
+    }),
+    [equipes, funcionarios, escalaPosicoes, escalaCelulas, escalaExcecoes, tiposTurno, plantoes, ferias, ausencias],
+  );
+
+  /** Só o que o usuário pode ver, já filtrado pela equipe escolhida. */
+  const noAlcance = (itens: ItemAgenda[]) =>
+    itens.filter((i) => {
+      const equipeId = i.equipe?.id;
+      if (equipesVisiveis !== null && (!equipeId || !equipesVisiveis.includes(equipeId))) return false;
+      if (filtroEquipe !== 'todas' && equipeId !== filtroEquipe) return false;
       return true;
     });
-  }, [plantoes, equipesVisiveis, filtroEquipe, funcionarios]);
 
-  const indisponiveis = useMemo(() => {
-    const mapa = new Map<string, 'ferias' | 'ausencia'>();
-    plantoesDescobertos({ plantoes, ferias, ausencias, aPartirDe: '0000-01-01' }).forEach((d) =>
-      mapa.set(d.plantao.id, d.motivo),
-    );
-    return mapa;
-  }, [plantoes, ferias, ausencias]);
-
-  const emCurso = useMemo(
-    () => plantoesEmCurso({ plantoes: visiveis, ferias, ausencias }),
-    [visiveis, ferias, ausencias],
+  const agendaDoMes = useMemo(
+    () => noAlcance(agendaDoPeriodo(contextoAgenda, primeiroDoMes, ultimoDoMes)),
+    // `noAlcance` depende só do filtro e do alcance, que já estão aqui.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [contextoAgenda, primeiroDoMes, ultimoDoMes, filtroEquipe, equipesVisiveis],
   );
+
+  /** A agenda de hoje, para os indicadores — hoje pode estar fora do mês aberto. */
+  const agendaDeHoje = useMemo(
+    () => noAlcance(agendaDoPeriodo(contextoAgenda, hojeIso, hojeIso)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [contextoAgenda, hojeIso, filtroEquipe, equipesVisiveis],
+  );
+
+  const emCurso = useMemo(() => {
+    const minuto = new Date().getHours() * 60 + new Date().getMinutes();
+    return agendaDeHoje.filter(
+      (i) => cobre(i) && turnoCobreMinuto(i.hora_inicio, i.hora_fim, minuto),
+    );
+  }, [agendaDeHoje]);
 
   const semCobertura = useMemo(
-    () => equipesSemCobertura({ equipes, funcionarios, plantoes, ferias, ausencias }),
-    [equipes, funcionarios, plantoes, ferias, ausencias],
+    () => equipesSemCoberturaNoDia(agendaDeHoje, equipes, hojeIso),
+    [agendaDeHoje, equipes, hojeIso],
   );
+
+  const brechas = useMemo(
+    () => brechasDaAgenda(agendaDoMes, primeiroDoMes, ultimoDoMes),
+    [agendaDoMes, primeiroDoMes, ultimoDoMes],
+  );
+
+  const pendentes = useMemo(() => pendentesDeGeracao(agendaDoMes), [agendaDoMes]);
 
   /** Células do mês: nulos no começo para alinhar o dia 1 ao dia da semana. */
   const celulas = useMemo(() => {
@@ -122,18 +186,10 @@ export default function PlantoesPage() {
     return dias;
   }, [ano, mes]);
 
-  const doDia = (data: string) =>
-    visiveis
-      .filter((p) => p.data === data)
-      .sort((a, b) => a.hora_inicio.localeCompare(b.hora_inicio));
+  const doDia = (data: string) => agendaDoMes.filter((i) => i.data === data);
 
-  const noMes = useMemo(
-    () => visiveis.filter((p) => p.data.startsWith(`${ano}-${String(mes + 1).padStart(2, '0')}`)),
-    [visiveis, ano, mes],
-  );
-
-  const horasNoMes = noMes.reduce(
-    (soma, p) => soma + duracaoTurnoHoras(p.hora_inicio, p.hora_fim),
+  const horasNoMes = agendaDoMes.reduce(
+    (soma, i) => (cobre(i) ? soma + duracaoTurnoHoras(i.hora_inicio, i.hora_fim) : soma),
     0,
   );
 
@@ -154,6 +210,34 @@ export default function PlantoesPage() {
       status: 'previsto',
       gerado_automaticamente: false,
     });
+  };
+
+  /**
+   * Um turno previsto pela escala ainda não existe como registro. Trocar ou
+   * editar precisa de um: aqui ele nasce, com os dados que a escala já dizia.
+   *
+   * Vaga aberta não materializa — não há a quem atribuir o plantão, e é essa
+   * brecha que a tela precisa continuar mostrando.
+   */
+  const materializar = (item: ItemAgenda): Plantao | null => {
+    if (item.plantao) return item.plantao;
+    if (!item.funcionario) {
+      toast.error('Esta posição está sem ninguém. Designe um ocupante na tela da equipe.');
+      return null;
+    }
+    const plantao: Plantao = {
+      id: novoId('p'),
+      funcionario_id: item.funcionario.id,
+      tipo_turno_id: item.turno?.id ?? null,
+      data: item.data,
+      hora_inicio: item.hora_inicio,
+      hora_fim: item.hora_fim,
+      tipo: item.tipo,
+      status: item.data < hojeIso ? 'confirmado' : 'previsto',
+      gerado_automaticamente: true,
+    };
+    salvarPlantao(plantao);
+    return plantao;
   };
 
   const salvar = () => {
@@ -230,16 +314,17 @@ export default function PlantoesPage() {
   };
 
   const exportar = () =>
-    baixarCsv(`plantoes-${ano}-${String(mes + 1).padStart(2, '0')}`, noMes, [
-      { cabecalho: 'Data', valor: (p) => formatarData(p.data) },
-      { cabecalho: 'Funcionário', valor: (p) => nomeDe(p.funcionario_id) },
-      { cabecalho: 'Equipe', valor: (p) => equipes.find((e) => e.id === equipeDoFuncionario(p.funcionario_id))?.nome },
-      { cabecalho: 'Início', valor: (p) => p.hora_inicio },
-      { cabecalho: 'Fim', valor: (p) => p.hora_fim },
-      { cabecalho: 'Horas', valor: (p) => duracaoTurnoHoras(p.hora_inicio, p.hora_fim) },
-      { cabecalho: 'Tipo', valor: (p) => TIPO_PLANTAO[p.tipo] },
-      { cabecalho: 'Situação', valor: (p) => STATUS_PLANTAO[p.status] },
-      { cabecalho: 'Conflito', valor: (p) => (indisponiveis.has(p.id) ? indisponiveis.get(p.id) : '') },
+    baixarCsv(`plantoes-${ano}-${String(mes + 1).padStart(2, '0')}`, agendaDoMes, [
+      { cabecalho: 'Data', valor: (i) => formatarData(i.data) },
+      { cabecalho: 'Equipe', valor: (i) => i.equipe?.nome ?? '' },
+      { cabecalho: 'Posição', valor: (i) => i.posicao?.nome ?? 'Avulso' },
+      { cabecalho: 'Funcionário', valor: (i) => i.funcionario?.nome ?? 'Vaga aberta' },
+      { cabecalho: 'Início', valor: (i) => i.hora_inicio },
+      { cabecalho: 'Fim', valor: (i) => i.hora_fim },
+      { cabecalho: 'Horas', valor: (i) => duracaoTurnoHoras(i.hora_inicio, i.hora_fim) },
+      { cabecalho: 'Tipo', valor: (i) => TIPO_PLANTAO[i.tipo] },
+      { cabecalho: 'Situação', valor: (i) => situacaoDoItem(i) },
+      { cabecalho: 'Brecha', valor: (i) => MOTIVO_BRECHA[i.descoberto ?? ''] ?? '' },
     ]);
 
   return (
@@ -268,7 +353,13 @@ export default function PlantoesPage() {
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Indicador rotulo="Em serviço agora" valor={emCurso.length} icone={CalendarDays} tom="info" />
-        <Indicador rotulo="Plantões no mês" valor={noMes.length} icone={CalendarDays} tom="primary" />
+        <Indicador
+          rotulo="Plantões no mês"
+          valor={agendaDoMes.length}
+          icone={CalendarDays}
+          tom="primary"
+          detalhe={pendentes.length > 0 ? `${pendentes.length} ainda não gerado(s)` : undefined}
+        />
         <Indicador
           rotulo="Horas escaladas"
           valor={`${Math.round(horasNoMes)}h`}
@@ -276,11 +367,11 @@ export default function PlantoesPage() {
           tom="primary"
         />
         <Indicador
-          rotulo="Equipes descobertas"
-          valor={semCobertura.length}
+          rotulo="Dias com brecha"
+          valor={brechas.length}
           icone={AlertTriangle}
-          tom={semCobertura.length > 0 ? 'destructive' : 'success'}
-          detalhe="Hoje"
+          tom={brechas.length > 0 ? 'destructive' : 'success'}
+          detalhe="Escalado e sem ninguém"
         />
       </div>
 
@@ -288,6 +379,14 @@ export default function PlantoesPage() {
         <Aviso tom="destructive">
           Cobertura mínima não atingida hoje:{' '}
           {semCobertura.map((s) => `${s.equipe.nome} (faltam ${s.faltam})`).join(', ')}.
+        </Aviso>
+      )}
+
+      {pendentes.length > 0 && podeGerenciar && (
+        <Aviso>
+          {pendentes.length} turno(s) deste mês vêm da escala das equipes e ainda não foram
+          gravados. Eles já aparecem no calendário abaixo; gere o mês para que entrem em trocas,
+          relatórios e nas integrações.
         </Aviso>
       )}
 
@@ -337,7 +436,7 @@ export default function PlantoesPage() {
 
                 const lista = doDia(data);
                 const ehHoje = data === hojeIso;
-                const conflitos = lista.filter((p) => indisponiveis.has(p.id)).length;
+                const conflitos = lista.filter((i) => i.descoberto).length;
 
                 return (
                   <button
@@ -360,34 +459,37 @@ export default function PlantoesPage() {
                     </div>
 
                     <div className="space-y-0.5">
-                      {lista.slice(0, 3).map((p) => {
-                        const conflito = indisponiveis.get(p.id);
-                        return (
-                          <div
-                            key={p.id}
-                            className={`flex items-center gap-1 truncate rounded px-1 py-0.5 text-[10px] ${
-                              conflito
-                                ? 'bg-destructive/10 text-destructive line-through'
-                                : p.status === 'trocado'
-                                  ? 'bg-muted text-muted-foreground line-through'
-                                  : 'bg-muted/60'
+                      {lista.slice(0, 3).map((item) => (
+                        <div
+                          key={item.id}
+                          title={`${item.posicao?.nome ?? 'Avulso'} · ${situacaoDoItem(item)}`}
+                          className={`flex items-center gap-1 truncate rounded px-1 py-0.5 text-[10px] ${
+                            item.descoberto
+                              ? 'bg-destructive/10 text-destructive line-through'
+                              : item.plantao?.status === 'trocado'
+                                ? 'bg-muted text-muted-foreground line-through'
+                                : item.plantao
+                                  ? 'bg-muted/60'
+                                  : // Previsto pela escala, ainda não gravado.
+                                    'border border-dashed border-border bg-transparent text-muted-foreground'
+                          }`}
+                        >
+                          <span
+                            className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                              item.tipo === 'noturno'
+                                ? 'bg-brand-blue'
+                                : item.tipo === 'diurno'
+                                  ? 'bg-brand-gold'
+                                  : item.tipo === 'comercial'
+                                    ? 'bg-brand-orange'
+                                    : 'bg-brand-coral'
                             }`}
-                          >
-                            <span
-                              className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                                p.tipo === 'noturno'
-                                  ? 'bg-brand-blue'
-                                  : p.tipo === 'diurno'
-                                    ? 'bg-brand-gold'
-                                    : p.tipo === 'comercial'
-                                      ? 'bg-brand-orange'
-                                      : 'bg-brand-coral'
-                              }`}
-                            />
-                            <span className="truncate">{primeiroNome(nomeDe(p.funcionario_id))}</span>
-                          </div>
-                        );
-                      })}
+                          />
+                          <span className="truncate">
+                            {item.funcionario ? primeiroNome(item.funcionario.nome) : 'Vaga'}
+                          </span>
+                        </div>
+                      ))}
                       {lista.length > 3 && (
                         <p className="px-1 text-[9px] text-muted-foreground">
                           +{lista.length - 3} mais
@@ -412,7 +514,12 @@ export default function PlantoesPage() {
               </span>
             ))}
             <span className="flex items-center gap-1.5">
-              <AlertTriangle className="h-3 w-3 text-destructive" /> Conflito com férias/ausência
+              <AlertTriangle className="h-3 w-3 text-destructive" /> Brecha: vaga aberta, férias ou
+              afastamento
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="h-2 w-4 rounded border border-dashed border-border" /> Previsto pela
+              escala, ainda não gerado
             </span>
           </div>
         </CardContent>
@@ -440,43 +547,70 @@ export default function PlantoesPage() {
               {doDia(diaAberto).length === 0 ? (
                 <EstadoVazio icone={CalendarDays} titulo="Nenhum plantão neste dia" />
               ) : (
-                doDia(diaAberto).map((p) => {
-                  const conflito = indisponiveis.get(p.id);
-                  const pessoa = funcionarios.find((f) => f.id === p.funcionario_id);
-                  return (
-                    <div key={p.id} className="space-y-2 rounded-lg border p-3">
-                      <div className="flex items-start gap-2.5">
-                        <Avatar nome={pessoa?.nome ?? '?'} tamanho="sm" />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">{pessoa?.nome}</p>
-                          <p className="tabular text-xs text-muted-foreground">
-                            {p.hora_inicio}–{p.hora_fim} ·{' '}
-                            {duracaoTurnoHoras(p.hora_inicio, p.hora_fim)}h ·{' '}
-                            {equipes.find((e) => e.id === pessoa?.equipe_id)?.nome}
-                          </p>
-                        </div>
-                        <BadgeStatus
-                          texto={TIPO_PLANTAO[p.tipo]}
-                          classe={CLASSE_TIPO_PLANTAO[p.tipo]}
-                          className="text-[10px]"
-                        />
-                      </div>
-
-                      {conflito && (
-                        <Aviso tom="destructive">
-                          Escalado, mas estará {conflito === 'ferias' ? 'de férias' : 'afastado'}.
-                          Providencie cobertura.
-                        </Aviso>
+                doDia(diaAberto).map((item) => (
+                  <div key={item.id} className="space-y-2 rounded-lg border p-3">
+                    <div className="flex items-start gap-2.5">
+                      {item.funcionario ? (
+                        <Avatar nome={item.funcionario.nome} tamanho="sm" />
+                      ) : (
+                        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-dashed border-destructive/50 text-destructive">
+                          <AlertTriangle className="h-3.5 w-3.5" />
+                        </span>
                       )}
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className={`truncate text-sm font-medium ${
+                            item.funcionario ? '' : 'text-destructive'
+                          }`}
+                        >
+                          {item.funcionario?.nome ?? 'Vaga aberta'}
+                        </p>
+                        <p className="tabular text-xs text-muted-foreground">
+                          {item.hora_inicio}–{item.hora_fim} ·{' '}
+                          {duracaoTurnoHoras(item.hora_inicio, item.hora_fim)}h ·{' '}
+                          {item.equipe?.nome ?? '—'}
+                          {item.posicao && ` · ${item.posicao.nome}`}
+                        </p>
+                      </div>
+                      <BadgeStatus
+                        texto={TIPO_PLANTAO[item.tipo]}
+                        classe={CLASSE_TIPO_PLANTAO[item.tipo]}
+                        className="text-[10px]"
+                      />
+                    </div>
 
+                    <p className="text-[11px] text-muted-foreground">{situacaoDoItem(item)}</p>
+
+                    {item.descoberto === 'vaga' && (
+                      <Aviso tom="destructive">
+                        A escala prevê este turno, mas a posição está sem ninguém. Designe alguém na
+                        tela da equipe para fechar a brecha.
+                      </Aviso>
+                    )}
+                    {item.descoberto && item.descoberto !== 'vaga' && (
+                      <Aviso tom="destructive">
+                        Escalado, mas estará {item.descoberto === 'ferias' ? 'de férias' : 'afastado'}.
+                        Providencie cobertura.
+                      </Aviso>
+                    )}
+                    {item.origem === 'avulso' && (
+                      <Aviso>
+                        Lançado fora da escala da equipe — ou sobrou de uma escala que mudou depois
+                        de gerada.
+                      </Aviso>
+                    )}
+
+                    {item.funcionario && (
                       <div className="flex gap-2">
-                        {p.status !== 'trocado' && p.data >= hojeIso && (
+                        {item.plantao?.status !== 'trocado' && item.data >= hojeIso && (
                           <Button
                             variant="outline"
                             size="sm"
                             className="flex-1"
                             onClick={() => {
-                              setTrocaDe(p);
+                              const plantao = materializar(item);
+                              if (!plantao) return;
+                              setTrocaDe(plantao);
                               setSubstitutoId('');
                               setMotivoTroca('');
                             }}
@@ -490,27 +624,37 @@ export default function PlantoesPage() {
                               variant="outline"
                               size="sm"
                               className="flex-1"
-                              onClick={() => setEmEdicao({ ...p })}
+                              onClick={() => {
+                                const plantao = materializar(item);
+                                if (plantao) setEmEdicao({ ...plantao });
+                              }}
                             >
                               Editar
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-destructive"
-                              onClick={() => {
-                                removerPlantao(p.id);
-                                toast.success('Plantão removido da escala.');
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            {item.plantao && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-destructive"
+                                title="Apagar o registro gravado"
+                                onClick={() => {
+                                  removerPlantao(item.plantao!.id);
+                                  toast.success(
+                                    item.origem === 'escala'
+                                      ? 'Registro apagado. O dia continua previsto pela escala.'
+                                      : 'Plantão removido da escala.',
+                                  );
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
                           </>
                         )}
                       </div>
-                    </div>
-                  );
-                })
+                    )}
+                  </div>
+                ))
               )}
             </div>
           )}
@@ -717,10 +861,18 @@ export default function PlantoesPage() {
             </div>
 
             {resultadoGerar && (
-              <Aviso tom="info">
-                {resultadoGerar.criados} criado(s), {resultadoGerar.atualizados} atualizado(s) e{' '}
-                {resultadoGerar.pulados} pulado(s) — já estavam ajustados à mão.
-              </Aviso>
+              <>
+                <Aviso tom="info">
+                  {resultadoGerar.criados} criado(s), {resultadoGerar.atualizados} atualizado(s) e{' '}
+                  {resultadoGerar.pulados} pulado(s) — já estavam ajustados à mão.
+                </Aviso>
+                {resultadoGerar.vagas > 0 && (
+                  <Aviso tom="destructive">
+                    {resultadoGerar.vagas} turno(s) do período não puderam ser gerados: a posição
+                    está sem ninguém. Eles seguem no calendário como brecha.
+                  </Aviso>
+                )}
+              </>
             )}
 
             <div className="flex gap-2 pt-2">

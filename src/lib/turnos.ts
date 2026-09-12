@@ -22,7 +22,7 @@
  * planilha, e é o que separa "hoje é folga" de "este dia não faz parte do
  * ciclo" na grade de cadastro.
  */
-import type { CorTurno, TipoTurno } from '@/types/sgo';
+import type { CorTurno, HoraMinuto, TipoPlantao, TipoTurno } from '@/types/sgo';
 
 /**
  * Um item da legenda. A linha de `tipos_turno` tem exatamente esta forma —
@@ -177,6 +177,35 @@ export function descricaoDoTurno(turno: TurnoLegenda): string {
     partes.push(`cobre como 2ª linha, ${turno.acionamento_inicio}–${turno.acionamento_fim}`);
   }
   return partes.join(' · ');
+}
+
+/**
+ * As janelas de plantão que um turno ocupa num dia.
+ *
+ * Um item da legenda pode acumular papéis — "T.4 Trabalho + plantão" é trabalho
+ * das 8 às 17 **e** acionável das 17 às 8 —, e são janelas de horário
+ * diferentes. Por isso um turno vira uma, duas ou nenhuma linha de plantão
+ * (folga não vira nenhuma).
+ *
+ * Está aqui, e não em cada consumidor, porque a conta precisa ser a mesma na
+ * tela da equipe, na tela de Plantões, na geração em lote do servidor e na
+ * massa de demonstração — quatro lugares que antes repetiam este `if`.
+ */
+export function janelasDoTurno(
+  turno: TurnoLegenda,
+): { inicio: HoraMinuto; fim: HoraMinuto; tipo: TipoPlantao }[] {
+  const janelas: { inicio: HoraMinuto; fim: HoraMinuto; tipo: TipoPlantao }[] = [];
+  if (turno.trabalha) {
+    janelas.push({ inicio: turno.hora_inicio, fim: turno.hora_fim, tipo: turno.tipo_plantao });
+  }
+  if (turno.acionamento !== 'nenhum') {
+    janelas.push({
+      inicio: turno.acionamento_inicio,
+      fim: turno.acionamento_fim,
+      tipo: turno.acionamento === 'plantao' ? 'sobreaviso' : 'backup',
+    });
+  }
+  return janelas;
 }
 
 /** A legenda em uso por uma equipe: a dela, ou a embutida se ainda não montou. */

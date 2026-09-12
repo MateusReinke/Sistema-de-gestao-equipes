@@ -35,11 +35,11 @@ import {
   aniversariantesDoMes,
   aniversariosDeEmpresaDoMes,
   calcularSaldoFerias,
-  equipesSemCobertura,
   plantoesDescobertos,
   plantoesEmCurso,
   turnoverDoMes,
 } from '@/lib/rh';
+import { agendaDoPeriodo, equipesSemCoberturaNoDia } from '@/lib/agendaPlantoes';
 import { formatarData, formatarDataCurta, hoje, humanizarPrazo } from '@/lib/date';
 import {
   CLASSE_CATEGORIA_COMUNICADO,
@@ -70,6 +70,10 @@ export default function DashboardPage() {
     equipes,
     departamentos,
     plantoes,
+    escalaPosicoes,
+    escalaCelulas,
+    escalaExcecoes,
+    tiposTurno,
     ferias,
     ausencias,
     comunicados,
@@ -109,9 +113,32 @@ export default function DashboardPage() {
       .slice(0, 4);
   }, [plantoes, ferias, ausencias]);
 
+  /**
+   * Cobertura de hoje pela mesma conta das outras telas: a escala projetada, e
+   * não só o que já foi gerado — ver `@/lib/agendaPlantoes`.
+   */
   const semCobertura = useMemo(
-    () => equipesSemCobertura({ equipes, funcionarios, plantoes, ferias, ausencias }),
-    [equipes, funcionarios, plantoes, ferias, ausencias],
+    () =>
+      equipesSemCoberturaNoDia(
+        agendaDoPeriodo(
+          {
+            equipes,
+            funcionarios,
+            escalaPosicoes,
+            escalaCelulas,
+            escalaExcecoes,
+            tiposTurno,
+            plantoes,
+            ferias,
+            ausencias,
+          },
+          hojeIso,
+          hojeIso,
+        ),
+        equipes,
+        hojeIso,
+      ),
+    [equipes, funcionarios, escalaPosicoes, escalaCelulas, escalaExcecoes, tiposTurno, plantoes, ferias, ausencias, hojeIso],
   );
 
   /** Quem está com o período concessivo estourando — a dívida cara do RH. */

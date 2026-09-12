@@ -3,7 +3,6 @@ import {
   aniversariantesDoMes,
   calcularSaldoFerias,
   conflitosDeEquipe,
-  equipesSemCobertura,
   formatarTempoDeCasa,
   idade,
   periodoAquisitivoVigente,
@@ -315,23 +314,6 @@ describe('cobertura de plantão', () => {
     expect(emCurso).toHaveLength(0);
   });
 
-  it('acusa equipe abaixo da cobertura mínima', () => {
-    const equipe: Equipe = {
-      id: 'eq1',
-      nome: 'Suporte N1',
-      cobertura_minima: 2,
-      ativo: true,
-    };
-    const resultado = equipesSemCobertura({
-      equipes: [equipe],
-      funcionarios: [funcionario()],
-      plantoes: [plantao({ data: REF })],
-      ferias: [],
-      ausencias: [],
-      data: REF,
-    });
-    expect(resultado[0]).toMatchObject({ escalados: 1, faltam: 1 });
-  });
 });
 
 describe('indicadores de pessoas', () => {
