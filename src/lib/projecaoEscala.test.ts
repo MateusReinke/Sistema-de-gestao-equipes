@@ -11,6 +11,7 @@ import type {
   EscalaExcecao,
   Ferias,
   Funcionario,
+  TipoTurno,
 } from '@/types/sgo';
 import { girarCiclo } from './cicloEscala';
 import { TURNOS_PADRAO } from './turnos';
@@ -235,7 +236,7 @@ describe('projetarEscalaEquipe', () => {
     expect(ana.dias.has('2026-01-05')).toBe(true);
   });
 
-  it('célula apontando para turno que saiu da legenda não pinta cor sem sentido', () => {
+  it('célula apontando para turno que não existe mais deixa o dia fora do ciclo', () => {
     const orfa: EscalaCelula[] = [
       { id: 'x1', cadastro_id: 'cad-f1', semana: 1, dia_semana: 1, tipo_turno_id: 'tt-apagado' },
     ];
@@ -246,6 +247,45 @@ describe('projetarEscalaEquipe', () => {
       '2026-01-11',
     );
     expect(ana.dias.size).toBe(0);
+  });
+
+  it('quem mudou de equipe continua no calendário, com o turno equivalente daqui', () => {
+    // O bug real: a pessoa foi cadastrada noutro time, as células apontam para
+    // a legenda de lá, e a linha dela sumia inteira sem nenhum aviso.
+    const deOutroTime: TipoTurno[] = [
+      { ...porRotulo('Trabalho'), id: 'tt-outra-equipe', equipe_id: 'eq-noc-noturno', hora_inicio: '19:00', hora_fim: '07:00' },
+    ];
+    const celulasAlheias: EscalaCelula[] = [
+      { id: 'y1', cadastro_id: 'cad-f1', semana: 1, dia_semana: 1, tipo_turno_id: 'tt-outra-equipe' },
+    ];
+    const [ana] = projetarEscalaEquipe(
+      {
+        ...base,
+        escalaCelulas: celulasAlheias,
+        turnosConhecidos: [...TURNOS_PADRAO, ...deOutroTime],
+      },
+      EQUIPE,
+      '2026-01-05',
+      '2026-01-11',
+    );
+
+    expect(ana.legendaDeOutraEquipe).toBe(true);
+    // Aparece com o item de mesmo nome desta equipe — e com o horário daqui,
+    // não o 19:00–07:00 do time anterior.
+    expect(ana.dias.get('2026-01-05')).toMatchObject({
+      turno: { rotulo: 'Trabalho', id: porRotulo('Trabalho').id },
+      horario: '08:00–17:00',
+    });
+  });
+
+  it('cadastro consistente não é marcado como de outra equipe', () => {
+    const [ana] = projetarEscalaEquipe(
+      { ...base, turnosConhecidos: TURNOS_PADRAO },
+      EQUIPE,
+      '2026-01-05',
+      '2026-01-11',
+    );
+    expect(ana.legendaDeOutraEquipe).toBeUndefined();
   });
 });
 

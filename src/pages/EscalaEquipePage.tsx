@@ -89,6 +89,7 @@ import {
   descricaoDoTurno,
   legendaDaEquipe,
   legendaInicialDaEquipe,
+  TURNOS_PADRAO,
   type TurnoLegenda,
 } from '@/lib/turnos';
 import { coberturaPorDia, diasDoIntervalo, projetarEscalaEquipe } from '@/lib/projecaoEscala';
@@ -113,6 +114,7 @@ export default function EscalaEquipePage() {
     salvarEscalaExcecao,
     removerEscalaExcecao,
     salvarCiclo,
+    removerCiclo,
     salvarFuncionario,
   } = useDados();
   const { podeGerenciar } = useAuth();
@@ -129,6 +131,7 @@ export default function EscalaEquipePage() {
   >(null);
   const [alvo, setAlvo] = useState<string | null>(null);
   const [cicloEmEdicao, setCicloEmEdicao] = useState<Funcionario | null>(null);
+  const [cadastroAExcluir, setCadastroAExcluir] = useState<Funcionario | null>(null);
   const [adicionarPessoa, setAdicionarPessoa] = useState(false);
   const [pessoaParaAdicionar, setPessoaParaAdicionar] = useState('');
 
@@ -158,13 +161,16 @@ export default function EscalaEquipePage() {
               ferias,
               ausencias,
               legenda,
+              // Quem mudou de equipe tem células apontando para a legenda do
+              // time anterior; sem esta lista, a linha dela sumiria calada.
+              turnosConhecidos: [...tiposTurno, ...TURNOS_PADRAO],
             },
             equipe.id,
             primeiroDia,
             ultimoDia,
           )
         : [],
-    [equipe, funcionarios, escalaCadastros, escalaCelulas, escalaExcecoes, ferias, ausencias, legenda, primeiroDia, ultimoDia],
+    [equipe, funcionarios, escalaCadastros, escalaCelulas, escalaExcecoes, ferias, ausencias, legenda, tiposTurno, primeiroDia, ultimoDia],
   );
 
   const cobertura = useMemo(() => coberturaPorDia(linhas, dias), [linhas, dias]);
@@ -174,6 +180,7 @@ export default function EscalaEquipePage() {
     0,
   );
   const semEscala = linhas.filter((l) => l.ciclo === 0);
+  const comLegendaAlheia = linhas.filter((l) => l.legendaDeOutraEquipe);
 
   const gerar = async () => {
     if (!equipe) return;
@@ -364,6 +371,14 @@ export default function EscalaEquipePage() {
         <Aviso>
           Sem cadastro de escala, então não aparecem no calendário:{' '}
           {semEscala.map((l) => l.funcionario.nome).join(', ')}.
+        </Aviso>
+      )}
+
+      {comLegendaAlheia.length > 0 && (
+        <Aviso tom="warning">
+          Cadastrados com a legenda de outra equipe (mudaram de time depois):{' '}
+          {comLegendaAlheia.map((l) => l.funcionario.nome).join(', ')}. O calendário usa o turno de
+          mesmo nome desta equipe — abra o cadastro e salve de novo para acertar de vez.
         </Aviso>
       )}
 
@@ -698,15 +713,27 @@ export default function EscalaEquipePage() {
                         />
                       )}
                       {podeGerenciar && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          title={`Editar o ciclo de ${linha.funcionario.nome}`}
-                          onClick={() => setCicloEmEdicao(linha.funcionario)}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            title={`Editar o ciclo de ${linha.funcionario.nome}`}
+                            onClick={() => setCicloEmEdicao(linha.funcionario)}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive"
+                            title={`Excluir o cadastro de ${linha.funcionario.nome}`}
+                            disabled={linha.ciclo === 0}
+                            onClick={() => setCadastroAExcluir(linha.funcionario)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
                       )}
                     </div>
                   );
@@ -732,7 +759,41 @@ export default function EscalaEquipePage() {
         aoFechar={() => setCicloEmEdicao(null)}
         garantirLegenda={copiarLegendaParaEquipe}
         salvarCiclo={salvarCiclo}
+        aoExcluir={setCadastroAExcluir}
       />
+
+      <AlertDialog
+        open={cadastroAExcluir !== null}
+        onOpenChange={(v) => !v && setCadastroAExcluir(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogTitle>
+            Excluir o cadastro de escala de {cadastroAExcluir?.nome}?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            A grade do ciclo e a data inicial somem, e a pessoa deixa de aparecer no calendário —
+            mas continua na equipe. Os plantões já gerados ficam no calendário de Plantões; apague
+            por lá se também não quiser mais.
+          </AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                if (!cadastroAExcluir) return;
+                try {
+                  await removerCiclo(cadastroAExcluir.id);
+                  toast.success(`Cadastro de ${cadastroAExcluir.nome} excluído.`);
+                } catch {
+                  // Erro já virou toast em useDados().
+                }
+                setCadastroAExcluir(null);
+              }}
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Sheet open={adicionarPessoa} onOpenChange={(v) => !v && setAdicionarPessoa(false)}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-md">

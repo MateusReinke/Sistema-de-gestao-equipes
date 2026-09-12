@@ -14,7 +14,7 @@
  * lugar certo.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { CopyPlus, Minus, Plus, RotateCw } from 'lucide-react';
+import { CopyPlus, Minus, Plus, RotateCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -45,6 +45,8 @@ interface Props {
    */
   garantirLegenda: () => Promise<TurnoLegenda[]>;
   salvarCiclo: (funcionarioId: string, inicioEm: string, celulas: CelulaNova[]) => Promise<void>;
+  /** Abre a confirmação de exclusão do cadastro, na tela da equipe. */
+  aoExcluir: (pessoa: Funcionario) => void;
 }
 
 /** `''` na grade quer dizer "este dia não faz parte do ciclo". */
@@ -80,6 +82,7 @@ export function EditorCiclo({
   aoFechar,
   garantirLegenda,
   salvarCiclo,
+  aoExcluir,
 }: Props) {
   const [inicioEm, setInicioEm] = useState('');
   const [grade, setGrade] = useState<Grade>([]);
@@ -401,6 +404,19 @@ export function EditorCiclo({
               {salvando ? 'Salvando…' : 'Salvar escala'}
             </Button>
           </div>
+
+          {cadastro && (
+            <Button
+              variant="outline"
+              className="w-full border-destructive/40 text-destructive hover:bg-destructive/10"
+              onClick={() => {
+                aoFechar();
+                aoExcluir(pessoa);
+              }}
+            >
+              <Trash2 className="mr-2 h-4 w-4" /> Excluir cadastro
+            </Button>
+          )}
         </div>
       </SheetContent>
     </Sheet>

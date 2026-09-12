@@ -156,6 +156,8 @@ interface ContextoDados extends BaseDados {
     ate: string,
     sobrescrever?: boolean,
   ) => Promise<{ criados: number; atualizados: number; pulados: number }>;
+  /** Apaga o cadastro de escala de uma pessoa: grade e data inicial. */
+  removerCiclo: (funcionarioId: string) => Promise<void>;
   /** Troca o ciclo inteiro de uma pessoa — ver `/api/funcionarios/:id/ciclo`. */
   salvarCiclo: (
     funcionarioId: string,
@@ -282,6 +284,19 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
     [aoConcluir, aoFalhar],
   );
 
+  const removerCiclo = useCallback(
+    async (funcionarioId: string) => {
+      try {
+        await api.remover(`/api/funcionarios/${funcionarioId}/ciclo`);
+        aoConcluir();
+      } catch (erro) {
+        aoFalhar(erro);
+        throw erro;
+      }
+    },
+    [aoConcluir, aoFalhar],
+  );
+
   const desligarFuncionario = useCallback(
     async (id: string, data: string) => {
       try {
@@ -335,6 +350,7 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
       removerPlantao: removerDe('plantoes'),
       gerarPlantoesEquipe,
       salvarCiclo,
+      removerCiclo,
 
       decidir,
     }),
@@ -348,6 +364,7 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
       desligarFuncionario,
       gerarPlantoesEquipe,
       salvarCiclo,
+      removerCiclo,
     ],
   );
 

@@ -45,6 +45,12 @@ export interface LinhaProjecao {
   cadastro?: EscalaCadastro;
   /** Tamanho do ciclo dela, em semanas. `0` quando não há grade preenchida. */
   ciclo: number;
+  /**
+   * A grade foi preenchida com a legenda de outra equipe — acontece quando a
+   * pessoa muda de time depois de cadastrada. O calendário continua sendo
+   * mostrado, mas isso precisa aparecer na tela, e não sumir em silêncio.
+   */
+  legendaDeOutraEquipe?: boolean;
   dias: Map<IsoDate, DiaProjetado>;
 }
 
@@ -58,6 +64,13 @@ interface Contexto {
   escalaExcecoes: EscalaExcecao[];
   /** Legenda em uso pela equipe — ver `legendaDaEquipe`. */
   legenda: TurnoLegenda[];
+  /**
+   * Todos os turnos que existem, de todas as equipes. Serve só para não perder
+   * o dia de quem foi cadastrado em outro time: o id da célula é encontrado
+   * aqui e reexibido com o item equivalente desta equipe. Sem isto, mudar
+   * alguém de equipe esvazia a linha dela sem explicação.
+   */
+  turnosConhecidos?: TurnoLegenda[];
 }
 
 /** Todos os dias do intervalo, inclusive nas duas pontas. */
@@ -122,7 +135,26 @@ export function projetarEscalaEquipe(
     celulasPorCadastro.set(celula.cadastro_id, lista);
   }
 
-  const turnoPorId = new Map(contexto.legenda.map((t) => [t.id, t]));
+  const turnoPorId = new Map((contexto.turnosConhecidos ?? contexto.legenda).map((t) => [t.id, t]));
+  const daEquipePorRotulo = new Map(contexto.legenda.map((t) => [t.rotulo, t]));
+  const idsDaEquipe = new Set(contexto.legenda.map((t) => t.id));
+
+  /**
+   * O item da legenda que descreve uma célula.
+   *
+   * Quando a célula veio da legenda de outra equipe, vale o item de mesmo
+   * rótulo desta — é ele que tem o horário certo para este time. Sem isso, um
+   * "Trabalho" cadastrado no NOC apareceria com o horário do NOC na Field
+   * Service.
+   */
+  const resolver = (
+    tipoTurnoId: string,
+  ): { turno: TurnoLegenda; deOutraEquipe: boolean } | undefined => {
+    const achado = turnoPorId.get(tipoTurnoId);
+    if (!achado) return undefined;
+    if (idsDaEquipe.has(achado.id)) return { turno: achado, deOutraEquipe: false };
+    return { turno: daEquipePorRotulo.get(achado.rotulo) ?? achado, deOutraEquipe: true };
+  };
 
   const membros = contexto.funcionarios
     .filter((f) => f.equipe_id === equipeId && f.status !== 'desligado')
@@ -132,19 +164,21 @@ export function projetarEscalaEquipe(
     const cadastro = cadastroPorPessoa.get(funcionario.id);
     const celulas = cadastro ? (celulasPorCadastro.get(cadastro.id) ?? []) : [];
     const dias = new Map<IsoDate, DiaProjetado>();
+    let legendaDeOutraEquipe = false;
 
     if (cadastro && celulas.length > 0) {
       const ciclo: CicloPessoa = { inicio_em: cadastro.inicio_em, celulas };
       for (const data of diasDoIntervalo(de, ate)) {
         const tipoTurnoId = turnoDoDia(ciclo, data);
         if (!tipoTurnoId) continue;
-        const turno = turnoPorId.get(tipoTurnoId);
-        // Uma célula pode apontar para um turno que saiu da legenda; melhor
-        // pular o dia do que pintar uma cor sem significado.
-        if (!turno) continue;
+        const achado = resolver(tipoTurnoId);
+        // A célula pode apontar para um turno que foi apagado de vez; aí não
+        // há o que pintar, e o dia fica fora do ciclo.
+        if (!achado) continue;
+        if (achado.deOutraEquipe) legendaDeOutraEquipe = true;
         dias.set(data, {
-          turno,
-          horario: horarioDoTurno(turno),
+          turno: achado.turno,
+          horario: horarioDoTurno(achado.turno),
           indisponivel: indisponibilidade(funcionario.id, data, contexto.ferias, contexto.ausencias),
         });
       }
@@ -159,14 +193,14 @@ export function projetarEscalaEquipe(
       if (excecao.funcionario_id !== funcionario.id) continue;
       if (excecao.data < de || excecao.data > ate) continue;
 
-      const turno = excecao.tipo_turno_id ? turnoPorId.get(excecao.tipo_turno_id) : undefined;
-      if (!turno) {
+      const achado = excecao.tipo_turno_id ? resolver(excecao.tipo_turno_id) : undefined;
+      if (!achado) {
         dias.delete(excecao.data);
         continue;
       }
       dias.set(excecao.data, {
-        turno,
-        horario: horarioDoTurno(turno),
+        turno: achado.turno,
+        horario: horarioDoTurno(achado.turno),
         ajustado: true,
         indisponivel: indisponibilidade(
           funcionario.id,
@@ -177,7 +211,13 @@ export function projetarEscalaEquipe(
       });
     }
 
-    return { funcionario, cadastro, ciclo: semanasDoCiclo(celulas), dias };
+    return {
+      funcionario,
+      cadastro,
+      ciclo: semanasDoCiclo(celulas),
+      legendaDeOutraEquipe: legendaDeOutraEquipe || undefined,
+      dias,
+    };
   });
 }
 

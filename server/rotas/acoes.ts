@@ -503,4 +503,43 @@ export function rotasAcoes(app: FastifyInstance): void {
 
     return reply.send({ cadastro_id: cadastroId, semanas, celulas: celulas.length });
   });
+
+  /**
+   * Apaga o cadastro de escala de uma pessoa — a grade e a data inicial.
+   *
+   * É o "limpar e começar de novo": sem cadastro, a pessoa continua na equipe,
+   * só não é projetada em dia nenhum. Os plantões que já foram gerados ficam
+   * onde estão, porque apagá-los junto varreria histórico que outras telas
+   * (trocas, aprovações) ainda referenciam.
+   */
+  app.delete<{ Params: { id: string } }>('/api/funcionarios/:id/ciclo', async (req, reply) => {
+    const sessao = await exigirSessao(req);
+    exigir(ehRh(sessao), 'Só o RH e a administração apagam o cadastro da escala.');
+
+    const [funcionario] = await db
+      .select()
+      .from(t.funcionarios)
+      .where(eq(t.funcionarios.id, req.params.id))
+      .limit(1);
+    if (!funcionario) return reply.code(404).send({ erro: 'Funcionário não encontrado.' });
+
+    const [cadastro] = await db
+      .select()
+      .from(t.escalaCadastros)
+      .where(eq(t.escalaCadastros.funcionario_id, funcionario.id))
+      .limit(1);
+    if (!cadastro) return reply.send({ apagado: false });
+
+    // As células somem junto, por cascata da FK.
+    await db.delete(t.escalaCadastros).where(eq(t.escalaCadastros.id, cadastro.id));
+
+    await registrar(sessao, {
+      acao: 'removeu',
+      entidade: 'Cadastro de escala',
+      entidade_id: cadastro.id,
+      descricao: `Cadastro de escala de ${funcionario.nome} apagado`,
+    });
+
+    return reply.send({ apagado: true });
+  });
 }
