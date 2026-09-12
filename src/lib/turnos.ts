@@ -17,11 +17,12 @@
  *   janelas diferentes (trabalha das 9 às 18 e fica acionável o dia todo).
  *
  * Um dia acumula papéis, então um item pode marcar as duas primeiras ao mesmo
- * tempo — é o "T.4 Trabalho + plantão" da planilha. Ao gravar, isso vira uma
- * ou duas linhas de `escala_detalhes`, que é o que o motor de geração
- * (`geracaoPlantoes.ts`) já sabia consumir, sem código híbrido nenhum.
+ * tempo — é o "T.4 Trabalho + plantão" da planilha. **Folga também é um item
+ * da legenda**, e não a ausência de um: é assim na aba `Configuração` da
+ * planilha, e é o que separa "hoje é folga" de "este dia não faz parte do
+ * ciclo" na grade de cadastro.
  */
-import type { Acionamento, CorTurno, EscalaDetalhe, TipoPlantao, TipoTurno } from '@/types/sgo';
+import type { CorTurno, TipoTurno } from '@/types/sgo';
 
 /**
  * Um item da legenda. A linha de `tipos_turno` tem exatamente esta forma —
@@ -44,26 +45,13 @@ export const CORES_TURNO: Record<CorTurno, { rotulo: string; classe: string }> =
 export const CORES_DISPONIVEIS = Object.keys(CORES_TURNO) as CorTurno[];
 
 /**
- * Id da folga. Folga não é uma linha de `tipos_turno`: é a *ausência* de
- * turno no dia, e por isso nunca gera plantão nem pode ser editada fora.
+ * Folga: não trabalha e não pode ser acionada. É o que a função abaixo
+ * reconhece — pelo significado, não pelo id, para a equipe poder renomear o
+ * item ("Descanso", "DSR") sem quebrar contagem de cobertura.
  */
-export const FOLGA_ID = 'folga';
-
-export const FOLGA: TurnoLegenda = {
-  id: FOLGA_ID,
-  codigo: 'Folga',
-  rotulo: 'Folga',
-  cor: 'verde',
-  trabalha: false,
-  acionamento: 'nenhum',
-  hora_inicio: '00:00',
-  hora_fim: '00:00',
-  acionamento_inicio: '00:00',
-  acionamento_fim: '00:00',
-  tipo_plantao: 'comercial',
-  ordem: 0,
-  ativo: true,
-};
+export function ehFolga(turno: TurnoLegenda): boolean {
+  return !turno.trabalha && turno.acionamento === 'nenhum';
+}
 
 /**
  * Legenda embutida, usada por qualquer equipe que ainda não montou a sua.
@@ -72,6 +60,21 @@ export const FOLGA: TurnoLegenda = {
  * horário e acrescenta o que quiser.
  */
 export const TURNOS_PADRAO: TurnoLegenda[] = [
+  {
+    id: 'padrao-folga',
+    codigo: 'Folga',
+    rotulo: 'Folga',
+    cor: 'verde',
+    trabalha: false,
+    acionamento: 'nenhum',
+    hora_inicio: '00:00',
+    hora_fim: '00:00',
+    acionamento_inicio: '00:00',
+    acionamento_fim: '00:00',
+    tipo_plantao: 'comercial',
+    ordem: 0,
+    ativo: true,
+  },
   {
     id: 'padrao-trabalho',
     codigo: 'T.1',
@@ -159,12 +162,12 @@ export function classeDoTurno(turno: TurnoLegenda): string {
  * um traço, para os dias em que alguém está escalado saltarem aos olhos.
  */
 export function codigoCurto(turno: TurnoLegenda): string {
-  return turno.id === FOLGA_ID ? '—' : turno.codigo;
+  return ehFolga(turno) ? '—' : turno.codigo;
 }
 
 /** Como o turno é descrito por extenso, com o horário que vale nele. */
 export function descricaoDoTurno(turno: TurnoLegenda): string {
-  if (turno.id === FOLGA_ID) return 'Não trabalha e não pode ser acionada.';
+  if (ehFolga(turno)) return 'Não trabalha e não pode ser acionada.';
   const partes: string[] = [];
   if (turno.trabalha) partes.push(`trabalha ${turno.hora_inicio}–${turno.hora_fim}`);
   if (turno.acionamento === 'plantao') {
@@ -173,7 +176,7 @@ export function descricaoDoTurno(turno: TurnoLegenda): string {
   if (turno.acionamento === 'backup') {
     partes.push(`cobre como 2ª linha, ${turno.acionamento_inicio}–${turno.acionamento_fim}`);
   }
-  return partes.length > 0 ? partes.join(' · ') : 'Sem efeito no dia.';
+  return partes.join(' · ');
 }
 
 /** A legenda em uso por uma equipe: a dela, ou a embutida se ainda não montou. */
@@ -185,110 +188,6 @@ export function legendaDaEquipe(
     .filter((t) => t.equipe_id === equipeId && t.ativo)
     .sort((a, b) => a.ordem - b.ordem || a.codigo.localeCompare(b.codigo));
   return daEquipe.length > 0 ? daEquipe : TURNOS_PADRAO;
-}
-
-type LinhaDetalhe = Omit<EscalaDetalhe, 'id' | 'escala_id'>;
-
-const TIPO_DO_ACIONAMENTO: Record<Exclude<Acionamento, 'nenhum'>, TipoPlantao> = {
-  plantao: 'sobreaviso',
-  backup: 'backup',
-};
-
-/**
- * Linhas de `escala_detalhes` que um turno produz numa célula do ciclo — duas
- * quando o dia acumula trabalho e acionamento, nenhuma na folga.
- */
-export function detalhesDoTurno(
-  turno: TurnoLegenda,
-  semanaDoCiclo: number,
-  diaSemana: number,
-): LinhaDetalhe[] {
-  if (turno.id === FOLGA_ID) return [];
-
-  const linhas: LinhaDetalhe[] = [];
-  const tipoTurnoId = turno.id.startsWith('padrao-') ? null : turno.id;
-
-  if (turno.trabalha) {
-    linhas.push({
-      tipo_turno_id: tipoTurnoId,
-      semana_do_ciclo: semanaDoCiclo,
-      dia_semana: diaSemana,
-      hora_inicio: turno.hora_inicio,
-      hora_fim: turno.hora_fim,
-      tipo: turno.tipo_plantao,
-    });
-  }
-  if (turno.acionamento !== 'nenhum') {
-    linhas.push({
-      tipo_turno_id: tipoTurnoId,
-      semana_do_ciclo: semanaDoCiclo,
-      dia_semana: diaSemana,
-      hora_inicio: turno.acionamento_inicio,
-      hora_fim: turno.acionamento_fim,
-      tipo: TIPO_DO_ACIONAMENTO[turno.acionamento],
-    });
-  }
-  return linhas;
-}
-
-interface LinhaLida {
-  tipo: TipoPlantao;
-  tipo_turno_id?: string | null;
-}
-
-/**
- * Caminho inverso: qual item da legenda um conjunto de turnos do mesmo dia
- * representa.
- *
- * Quando as linhas trazem `tipo_turno_id`, é consulta direta. Escalas montadas
- * antes da legenda não trazem — aí o item é deduzido pelas mesmas duas
- * perguntas (trabalha? acionamento?), o que também cobre um plantão lançado à
- * mão fora de qualquer grade.
- */
-export function turnoDeDetalhes(detalhes: LinhaLida[], legenda: TurnoLegenda[]): TurnoLegenda {
-  if (detalhes.length === 0) return FOLGA;
-
-  const comId = detalhes.find((d) => d.tipo_turno_id);
-  if (comId) {
-    const achado = legenda.find((t) => t.id === comId.tipo_turno_id);
-    if (achado) return achado;
-  }
-
-  let trabalha = false;
-  let acionamento: Acionamento = 'nenhum';
-  for (const d of detalhes) {
-    if (d.tipo === 'sobreaviso') acionamento = 'plantao';
-    else if (d.tipo === 'backup') {
-      if (acionamento === 'nenhum') acionamento = 'backup';
-    } else trabalha = true;
-  }
-
-  const equivalente = legenda.find(
-    (t) => t.trabalha === trabalha && t.acionamento === acionamento,
-  );
-  if (equivalente) return equivalente;
-  return trabalha || acionamento !== 'nenhum' ? (legenda[0] ?? FOLGA) : FOLGA;
-}
-
-/** Grade `ciclo_semanas × 7` com o turno de cada célula — o que a tela pinta. */
-export function gradeDeDetalhes(
-  detalhes: (LinhaLida & { semana_do_ciclo: number; dia_semana: number })[],
-  cicloSemanas: number,
-  legenda: TurnoLegenda[],
-): TurnoLegenda[][] {
-  const porCelula = new Map<string, LinhaLida[]>();
-  for (const d of detalhes) {
-    const chave = `${d.semana_do_ciclo}-${d.dia_semana}`;
-    const lista = porCelula.get(chave) ?? [];
-    lista.push(d);
-    porCelula.set(chave, lista);
-  }
-
-  return Array.from({ length: cicloSemanas }, (_, i) =>
-    Array.from({ length: 7 }, (_, dia) =>
-      turnoDeDetalhes(porCelula.get(`${i + 1}-${dia}`) ?? [], legenda),
-    ),
-  );
 }
 
 /**

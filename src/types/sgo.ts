@@ -221,51 +221,6 @@ export interface Funcionario {
 
 /* ----------------------------------------------------- escalas e plantões */
 
-export type TipoEscala = '12x36' | '5x2' | '6x1' | 'personalizada';
-
-/**
- * Papel que uma escala representa dentro do rodízio de uma equipe. Uma
- * pessoa pode estar vinculada a mais de uma escala ao mesmo tempo — é assim
- * que "trabalha de dia e ainda carrega o plantão" nasce: uma escala
- * `trabalho` mais uma `plantao`, em vez de um código híbrido para isso.
- */
-export type PapelEscala = 'trabalho' | 'plantao' | 'backup';
-
-export interface Escala {
-  id: string;
-  nome: string;
-  tipo: TipoEscala;
-  descricao: string;
-  /** Nula nas escalas antigas, globais; uma escala nova sempre pertence a uma equipe. */
-  equipe_id?: string | null;
-  /**
-   * Duração do rodízio, em semanas, antes de repetir. `1` cobre 5×2, 6×1 e
-   * personalizada; `2` já cobre 12×36 (menor ciclo de semanas cheias em que
-   * um rodízio de 2 dias corridos volta a cair no mesmo dia da semana).
-   */
-  ciclo_semanas: number;
-  /**
-   * Semana em que o rodízio começa — a referência das posições. Quem ocupa a
-   * posição 1 tem a âncora aqui; a posição 2, uma semana depois.
-   */
-  inicio_em: IsoDate;
-  papel: PapelEscala;
-
-  /**
-   * Horário fica aqui, não em cada célula do ciclo: a grade diz *o que* a
-   * pessoa faz no dia, a escala diz *a que horas* — como o horário contratual
-   * de uma linha de planilha.
-   */
-  turno_tipo: TipoPlantao;
-  turno_inicio: HoraMinuto;
-  turno_fim: HoraMinuto;
-  /** Janela em que quem está de plantão ou de backup pode ser acionado. */
-  sobreaviso_inicio: HoraMinuto;
-  sobreaviso_fim: HoraMinuto;
-
-  ativo: boolean;
-}
-
 /** Se um turno põe a pessoa na fila de acionamento, e em que posição. */
 export type Acionamento = 'nenhum' | 'plantao' | 'backup';
 
@@ -308,8 +263,9 @@ export interface TipoTurno {
  * Um dia que foge do padrão do ciclo, para uma pessoa — o ajuste pontual que
  * a tela da equipe grava ao mexer numa célula do calendário.
  *
- * `tipo_turno_id` nulo quer dizer **folga**: é o que distingue "este dia virou
- * folga" de "nunca houve exceção aqui".
+ * `tipo_turno_id` nulo esvazia o dia — é o que distingue "este dia não tem
+ * nada" de "nunca houve ajuste aqui". Para marcar folga, aponte para o item
+ * "Folga" da legenda, que é um turno como outro qualquer.
  */
 export interface EscalaExcecao {
   id: string;
@@ -319,36 +275,36 @@ export interface EscalaExcecao {
   observacao: string;
 }
 
-export interface EscalaDetalhe {
-  id: string;
-  escala_id: string;
-  /**
-   * Item da legenda da equipe de onde esta linha saiu. Nulo nas escalas
-   * montadas antes de a legenda existir — aí o turno é deduzido pelo `tipo`.
-   */
-  tipo_turno_id?: string | null;
-  /** 1-based: em qual semana do ciclo da escala este turno vale. */
-  semana_do_ciclo: number;
-  /** 0 = domingo … 6 = sábado. */
-  dia_semana: number;
-  hora_inicio: HoraMinuto;
-  hora_fim: HoraMinuto;
-  /** Tipo do plantão que este turno-modelo produz ao ser gerado. */
-  tipo: TipoPlantao;
-}
-
-export interface EscalaFuncionario {
+/**
+ * O cadastro da escala de uma pessoa — a linha da aba "Cadastro" da planilha.
+ *
+ * A grade fica em `EscalaCelula`; aqui está a data que ancora o ciclo. Seguindo
+ * a planilha, a semana desta data é a **última** do ciclo, e a `Semana 1` é a
+ * seguinte. A conta está em `src/lib/cicloEscala.ts`.
+ */
+export interface EscalaCadastro {
   id: string;
   funcionario_id: string;
-  escala_id: string;
-  /**
-   * Data que corresponde à semana 1, dia 1 do ciclo — para esta pessoa.
-   * Permite duas pessoas compartilharem a mesma escala revezando em dias
-   * opostos: mesma `escala_id`, âncora com 1 dia de diferença.
-   */
-  ancora_em: IsoDate;
-  data_inicio: IsoDate;
-  data_fim: IsoDate;
+  inicio_em: IsoDate;
+  observacao: string;
+}
+
+/**
+ * Uma célula da grade de cadastro: nesta semana do ciclo, neste dia da semana,
+ * este turno.
+ *
+ * O tamanho do ciclo é a última semana preenchida — preencher a semana 1 e
+ * parar já significa "toda semana igual". Folga é um turno como outro
+ * qualquer; célula ausente quer dizer que aquele dia não faz parte do ciclo.
+ */
+export interface EscalaCelula {
+  id: string;
+  cadastro_id: string;
+  /** 1-based, como os rótulos "Semana 1", "Semana 2"… */
+  semana: number;
+  /** 0 = domingo … 6 = sábado. */
+  dia_semana: number;
+  tipo_turno_id: string;
 }
 
 /**
@@ -374,13 +330,12 @@ export interface Plantao {
   /** Item da legenda que originou o plantão, quando veio de uma grade. */
   tipo_turno_id?: string | null;
   funcionario_id: string;
-  escala_id?: string | null;
   data: IsoDate;
   hora_inicio: HoraMinuto;
   hora_fim: HoraMinuto;
   tipo: TipoPlantao;
   status: StatusPlantao;
-  /** Criado pelo motor de geração, não por uma pessoa — ver `geracaoPlantoes.ts`. */
+  /** Criado ao gerar o mês a partir do cadastro, não lançado por uma pessoa. */
   gerado_automaticamente: boolean;
 }
 

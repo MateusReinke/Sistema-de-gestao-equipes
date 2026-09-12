@@ -47,7 +47,6 @@ export default function PlantoesPage() {
     plantoes,
     funcionarios,
     equipes,
-    escalas,
     ferias,
     ausencias,
     salvarPlantao,
@@ -590,21 +589,6 @@ export default function PlantoesPage() {
                       {(Object.keys(TIPO_PLANTAO) as TipoPlantao[]).map((t) => (
                         <SelectItem key={t} value={t}>{TIPO_PLANTAO[t]}</SelectItem>
                       ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Escala</Label>
-                  <Select
-                    value={emEdicao.escala_id ?? 'nenhuma'}
-                    onValueChange={(v) =>
-                      setEmEdicao({ ...emEdicao, escala_id: v === 'nenhuma' ? undefined : v })
-                    }
-                  >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="nenhuma">Avulso</SelectItem>
-                      {escalas.map((e) => <SelectItem key={e.id} value={e.id}>{e.nome}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>

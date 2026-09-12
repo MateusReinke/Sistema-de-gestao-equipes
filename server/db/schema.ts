@@ -63,15 +63,6 @@ export const tipoIntegracao = pgEnum('tipo_integracao', ['zabbix', 'glpi', 'webh
 export const tipoContrato = pgEnum('tipo_contrato', ['clt', 'pj', 'estagio', 'temporario', 'aprendiz']);
 export const modeloTrabalho = pgEnum('modelo_trabalho', ['presencial', 'hibrido', 'remoto']);
 export const statusFuncionario = pgEnum('status_funcionario', ['ativo', 'ferias', 'afastado', 'desligado']);
-export const tipoEscala = pgEnum('tipo_escala', ['12x36', '5x2', '6x1', 'personalizada']);
-/**
- * Papel que uma escala representa dentro do rodízio de uma equipe.
- *
- * Uma pessoa pode estar vinculada a mais de uma escala ao mesmo tempo — é
- * assim que "trabalha de dia e ainda carrega o plantão" nasce: uma escala
- * `trabalho` mais uma `plantao`, em vez de um código híbrido só para isso.
- */
-export const papelEscala = pgEnum('papel_escala', ['trabalho', 'plantao', 'backup']);
 /** Se um turno põe a pessoa na fila de acionamento, e em que posição. */
 export const acionamentoTurno = pgEnum('acionamento_turno', ['nenhum', 'plantao', 'backup']);
 /**
@@ -392,61 +383,14 @@ export const avaliacoesCliente = pgTable(
 
 /* -------------------------------------------------------- escalas e plantões */
 
-export const escalas = pgTable('escalas', {
-  id: varchar('id', { length: 40 }).primaryKey(),
-  nome: text('nome').notNull(),
-  tipo: tipoEscala('tipo').notNull(),
-  descricao: text('descricao').notNull().default(''),
-  /**
-   * Dona do rodízio. Nula nas escalas antigas, globais, que não pertencem a
-   * uma equipe específica — uma escala nova sempre aponta para uma.
-   */
-  equipe_id: varchar('equipe_id', { length: 40 }).references(() => equipes.id, { onDelete: 'cascade' }),
-  /**
-   * Duração do rodízio, em semanas, antes de repetir. `1` é o caso comum
-   * (mesmo padrão toda semana — cobre 5×2, 6×1 e personalizada). `2` já
-   * cobre 12×36: é o menor número de semanas cheias em que um rodízio de
-   * 2 dias corridos volta a cair no mesmo dia da semana.
-   */
-  ciclo_semanas: smallint('ciclo_semanas').notNull().default(1),
-  /**
-   * Semana em que o rodízio começa — a referência das *posições*.
-   *
-   * Quem ocupa a posição 1 tem a âncora aqui; a posição 2, uma semana depois,
-   * e assim por diante. Guardar o início na escala é o que permite a tela
-   * falar em "posição 2 de 3" em vez de pedir uma data por pessoa, que era
-   * onde a conta saía errada.
-   */
-  inicio_em: date('inicio_em').notNull().defaultNow(),
-  /** Que papel esta escala cumpre no rodízio da equipe. */
-  papel: papelEscala('papel').notNull().default('trabalho'),
-
-  /*
-   * Horário fica na escala, não em cada célula do ciclo.
-   *
-   * A grade do ciclo guarda só *o que* a pessoa faz no dia (trabalha, está de
-   * plantão, é backup); *a que horas* é sempre o mesmo par dentro da escala —
-   * como o "horário contratual" de uma linha da planilha. Sem isso, montar um
-   * ciclo de 3 semanas exigia repetir o mesmo início e fim 21 vezes.
-   */
-  turno_tipo: tipoPlantao('turno_tipo').notNull().default('comercial'),
-  turno_inicio: horaMinuto('turno_inicio').notNull().default('08:00'),
-  turno_fim: horaMinuto('turno_fim').notNull().default('17:00'),
-  /** Janela em que quem está de plantão ou de backup pode ser acionado. */
-  sobreaviso_inicio: horaMinuto('sobreaviso_inicio').notNull().default('00:00'),
-  sobreaviso_fim: horaMinuto('sobreaviso_fim').notNull().default('23:59'),
-
-  ativo: boolean('ativo').notNull().default(true),
-});
-
 /**
  * Legenda de turnos de uma equipe — os códigos que aparecem na grade e no
  * calendário (T.1 Trabalho, T.2 Noturno, T.3 Plantão…).
  *
  * É por equipe porque cada operação lê a própria escala de um jeito: no NOC,
  * "T.2" quer dizer turno noturno; na infra, plantão. Enquanto uma equipe não
- * mexe na legenda dela, a tela usa o conjunto embutido em
- * `src/lib/estadosDia.ts` — só quem edita materializa as linhas aqui.
+ * mexe na legenda dela, a tela usa o conjunto embutido em `src/lib/turnos.ts`
+ * — só quem edita (ou preenche a primeira grade) materializa as linhas aqui.
  */
 export const tiposTurno = pgTable('tipos_turno', {
   id: varchar('id', { length: 40 }).primaryKey(),
@@ -477,66 +421,55 @@ export const tiposTurno = pgTable('tipos_turno', {
   ativo: boolean('ativo').notNull().default(true),
 });
 
-export const escalaDetalhes = pgTable(
-  'escala_detalhes',
-  {
-    id: varchar('id', { length: 40 }).primaryKey(),
-    escala_id: varchar('escala_id', { length: 40 })
-      .notNull()
-      .references(() => escalas.id, { onDelete: 'cascade' }),
-    /**
-     * De qual item da legenda esta linha nasceu. Nulo nas escalas montadas
-     * antes de a legenda existir — aí a tela deduz o estado pelo `tipo`.
-     */
-    tipo_turno_id: varchar('tipo_turno_id', { length: 40 }).references(() => tiposTurno.id, {
-      onDelete: 'set null',
-    }),
-    /** 1-based: em qual semana do ciclo da escala este turno vale. */
-    semana_do_ciclo: smallint('semana_do_ciclo').notNull().default(1),
-    dia_semana: smallint('dia_semana').notNull(),
-    hora_inicio: horaMinuto('hora_inicio').notNull(),
-    hora_fim: horaMinuto('hora_fim').notNull(),
-    /** Tipo do plantão que este turno-modelo produz ao ser gerado. */
-    tipo: tipoPlantao('tipo').notNull(),
-  },
-  (t) => ({
-    // Mais de um turno no mesmo dia é o caso normal (ex.: comercial de dia +
-    // sobreaviso à noite, na mesma escala) — o que não pode repetir é o
-    // mesmo horário de início duas vezes no mesmo turno da semana.
-    turnoUnico: uniqueIndex('escala_detalhes_turno_idx').on(
-      t.escala_id,
-      t.semana_do_ciclo,
-      t.dia_semana,
-      t.hora_inicio,
-    ),
-  }),
-);
-
-export const escalaFuncionarios = pgTable('escala_funcionarios', {
+/**
+ * O cadastro da escala de uma pessoa — a "linha da aba Cadastro" da planilha
+ * da operação, que é de onde todo o resto é calculado.
+ *
+ * Cada pessoa tem uma data inicial e uma grade de semanas (`Semana 1`,
+ * `Semana 2`, …). O ciclo tem o tamanho da última semana preenchida e volta
+ * sozinho para o começo: preencheu só a semana 1, toda semana é igual;
+ * preencheu até a 3, a quarta semana do calendário já é a semana 1 de novo.
+ * A conta que lê isso está em `src/lib/cicloEscala.ts`.
+ */
+export const escalaCadastros = pgTable('escala_cadastros', {
   id: varchar('id', { length: 40 }).primaryKey(),
   funcionario_id: varchar('funcionario_id', { length: 40 })
     .notNull()
+    .unique()
     .references(() => funcionarios.id, { onDelete: 'cascade' }),
-  escala_id: varchar('escala_id', { length: 40 })
-    .notNull()
-    .references(() => escalas.id, { onDelete: 'cascade' }),
   /**
-   * Data que corresponde à semana 1, dia 1 do ciclo — para esta pessoa.
-   * É o que permite duas pessoas compartilharem a mesma escala revezando por
-   * semana cheia (ex.: plantão de infra, uma pessoa por semana): mesma
-   * `escala_id`, âncoras espaçadas em semanas inteiras.
-   *
-   * Não serve para revezar dia a dia (ex.: par 12×36) — 1 dia de
-   * deslocamento na âncora não fecha esse padrão, porque só a *semana do
-   * ciclo* se desloca com ela, não o `dia_semana` do template (ver o
-   * cabeçalho de `src/lib/geracaoPlantoes.ts`). Esse caso usa duas escalas
-   * com templates complementares, âncora igual nas duas — ver
-   * `src/lib/composicaoEscalas.ts`.
+   * Semana que ancora o ciclo. Seguindo a planilha, a semana desta data é a
+   * **última** do ciclo — a `Semana 1` é a seguinte.
    */
-  ancora_em: date('ancora_em').notNull(),
-  data_inicio: date('data_inicio').notNull(),
-  data_fim: date('data_fim').notNull(),
+  inicio_em: date('inicio_em').notNull(),
+  observacao: text('observacao').notNull().default(''),
 });
+
+/** Uma célula da grade: nesta semana do ciclo, neste dia, este turno. */
+export const escalaCelulas = pgTable(
+  'escala_celulas',
+  {
+    id: varchar('id', { length: 40 }).primaryKey(),
+    cadastro_id: varchar('cadastro_id', { length: 40 })
+      .notNull()
+      .references(() => escalaCadastros.id, { onDelete: 'cascade' }),
+    /** 1-based, como os rótulos "Semana 1", "Semana 2"… da planilha. */
+    semana: smallint('semana').notNull(),
+    /** 0 = domingo … 6 = sábado. */
+    dia_semana: smallint('dia_semana').notNull(),
+    /**
+     * Folga é um turno como outro qualquer — é assim na planilha, e é o que
+     * separa "folga" de "esta semana não faz parte do ciclo". Célula ausente é
+     * o segundo caso.
+     */
+    tipo_turno_id: varchar('tipo_turno_id', { length: 40 })
+      .notNull()
+      .references(() => tiposTurno.id, { onDelete: 'cascade' }),
+  },
+  (t) => ({
+    celulaUnica: uniqueIndex('escala_celulas_celula_idx').on(t.cadastro_id, t.semana, t.dia_semana),
+  }),
+);
 
 /**
  * Um dia que foge do padrão do ciclo, para uma pessoa.
@@ -579,7 +512,6 @@ export const plantoes = pgTable(
     funcionario_id: varchar('funcionario_id', { length: 40 })
       .notNull()
       .references(() => funcionarios.id, { onDelete: 'cascade' }),
-    escala_id: varchar('escala_id', { length: 40 }).references(() => escalas.id, { onDelete: 'set null' }),
     data: date('data').notNull(),
     hora_inicio: horaMinuto('hora_inicio').notNull(),
     hora_fim: horaMinuto('hora_fim').notNull(),
@@ -911,9 +843,10 @@ export const tabelasNaOrdem = [
   servicosContratados,
   atendimentoEquipes,
   avaliacoesCliente,
-  escalas,
-  escalaDetalhes,
-  escalaFuncionarios,
+  tiposTurno,
+  escalaCadastros,
+  escalaCelulas,
+  escalaExcecoes,
   plantoes,
   ferias,
   ausencias,

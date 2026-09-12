@@ -1,30 +1,28 @@
 /**
- * Projeção da escala de uma equipe sobre um mês — a visão que a planilha
- * entregava: uma linha por pessoa, uma coluna por dia, e em cada célula o que
+ * Projeção da escala de uma equipe sobre um período — a visão que a planilha
+ * entrega: uma linha por pessoa, uma coluna por dia, e em cada célula o que
  * aquela pessoa faz naquele dia.
  *
- * Diferente da geração de plantões, isto **não grava nada**. É leitura pura do
- * rodízio já cadastrado, calculada na hora, para a escala do mês que vem poder
- * ser conferida antes de existir plantão nenhum no banco.
+ * Isto **não grava nada**: é leitura pura do cadastro, calculada na hora, para
+ * a escala de qualquer mês poder ser conferida antes de existir plantão nenhum
+ * no banco. A conta de calendário não é refeita aqui — cada pessoa passa por
+ * `turnoDoDia` (`@/lib/cicloEscala`), o mesmo motor que a geração em lote usa.
  *
- * O cálculo de calendário não é refeito aqui: cada vínculo passa por
- * `plantoesGerados` (`@/lib/geracaoPlantoes`), o mesmo motor que a geração em
- * lote usa. O que esta camada acrescenta é juntar tudo por pessoa e por dia —
- * inclusive turnos vindos de escalas diferentes, que é como "trabalha de dia e
- * carrega o plantão" aparece — e traduzir o resultado para um estado só.
+ * O que esta camada acrescenta: juntar o cadastro com os ajustes de dia solto,
+ * marcar quem está de férias ou afastado, e resolver o turno para o item da
+ * legenda que a tela pinta.
  */
 import type {
   Ausencia,
-  Escala,
-  EscalaDetalhe,
+  EscalaCadastro,
+  EscalaCelula,
   EscalaExcecao,
-  EscalaFuncionario,
   Ferias,
   Funcionario,
   IsoDate,
 } from '@/types/sgo';
-import { plantoesGerados } from '@/lib/geracaoPlantoes';
-import { turnoDeDetalhes, FOLGA_ID, type TurnoLegenda } from '@/lib/turnos';
+import { type CicloPessoa, semanasDoCiclo, turnoDoDia } from '@/lib/cicloEscala';
+import { ehFolga, type TurnoLegenda } from '@/lib/turnos';
 import { somarDias } from '@/lib/date';
 
 export interface DiaProjetado {
@@ -43,16 +41,17 @@ export interface DiaProjetado {
 
 export interface LinhaProjecao {
   funcionario: Funcionario;
-  /** Escalas a que a pessoa está vinculada no período, para o cabeçalho. */
-  escalas: Escala[];
+  /** Cadastro da pessoa, para a tela mostrar o ciclo e a data inicial. */
+  cadastro?: EscalaCadastro;
+  /** Tamanho do ciclo dela, em semanas. `0` quando não há grade preenchida. */
+  ciclo: number;
   dias: Map<IsoDate, DiaProjetado>;
 }
 
 interface Contexto {
   funcionarios: Funcionario[];
-  escalas: Escala[];
-  escalaDetalhes: EscalaDetalhe[];
-  escalaFuncionarios: EscalaFuncionario[];
+  escalaCadastros: EscalaCadastro[];
+  escalaCelulas: EscalaCelula[];
   ferias: Ferias[];
   ausencias: Ausencia[];
   /** Ajustes de dia solto, que vencem o padrão do ciclo. */
@@ -66,6 +65,14 @@ export function diasDoIntervalo(de: IsoDate, ate: IsoDate): IsoDate[] {
   const dias: IsoDate[] = [];
   for (let d = de; d <= ate; d = somarDias(d, 1)) dias.push(d);
   return dias;
+}
+
+/** O horário que vale num turno: o de trabalho, ou a janela de acionamento. */
+export function horarioDoTurno(turno: TurnoLegenda): string {
+  if (ehFolga(turno)) return '—';
+  return turno.trabalha
+    ? `${turno.hora_inicio}–${turno.hora_fim}`
+    : `${turno.acionamento_inicio}–${turno.acionamento_fim}`;
 }
 
 /** Quem está de férias ou afastado num dia — aprovado, não só solicitado. */
@@ -97,9 +104,8 @@ function indisponibilidade(
 /**
  * Uma linha por pessoa da equipe, com o estado de cada dia do período.
  *
- * Pessoa sem nenhum vínculo de escala continua aparecendo, com todos os dias
- * em folga: uma linha vazia mostra que falta cadastrar, enquanto some-la
- * esconderia o problema.
+ * Pessoa sem cadastro continua aparecendo, com a linha vazia: assim falta um
+ * cadastro fica visível na tela, enquanto escondê-la esconderia o problema.
  */
 export function projetarEscalaEquipe(
   contexto: Contexto,
@@ -107,90 +113,60 @@ export function projetarEscalaEquipe(
   de: IsoDate,
   ate: IsoDate,
 ): LinhaProjecao[] {
-  const escalaPorId = new Map(contexto.escalas.map((e) => [e.id, e]));
+  const cadastroPorPessoa = new Map(contexto.escalaCadastros.map((c) => [c.funcionario_id, c]));
 
-  const detalhesPorEscala = new Map<string, EscalaDetalhe[]>();
-  for (const d of contexto.escalaDetalhes) {
-    const lista = detalhesPorEscala.get(d.escala_id) ?? [];
-    lista.push(d);
-    detalhesPorEscala.set(d.escala_id, lista);
+  const celulasPorCadastro = new Map<string, EscalaCelula[]>();
+  for (const celula of contexto.escalaCelulas) {
+    const lista = celulasPorCadastro.get(celula.cadastro_id) ?? [];
+    lista.push(celula);
+    celulasPorCadastro.set(celula.cadastro_id, lista);
   }
+
+  const turnoPorId = new Map(contexto.legenda.map((t) => [t.id, t]));
 
   const membros = contexto.funcionarios
     .filter((f) => f.equipe_id === equipeId && f.status !== 'desligado')
     .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 
   return membros.map((funcionario) => {
-    const vinculos = contexto.escalaFuncionarios.filter(
-      (v) => v.funcionario_id === funcionario.id,
-    );
+    const cadastro = cadastroPorPessoa.get(funcionario.id);
+    const celulas = cadastro ? (celulasPorCadastro.get(cadastro.id) ?? []) : [];
+    const dias = new Map<IsoDate, DiaProjetado>();
 
-    // Turnos do período, de todas as escalas da pessoa, agrupados por dia.
-    const porDia = new Map<
-      IsoDate,
-      { tipo: EscalaDetalhe['tipo']; tipo_turno_id?: string | null; hora_inicio: string; hora_fim: string }[]
-    >();
-    const escalasDaPessoa: Escala[] = [];
-
-    for (const vinculo of vinculos) {
-      const escala = escalaPorId.get(vinculo.escala_id);
-      if (!escala || !escala.ativo) continue;
-      escalasDaPessoa.push(escala);
-
-      const gerados = plantoesGerados(
-        vinculo,
-        detalhesPorEscala.get(escala.id) ?? [],
-        escala.ciclo_semanas,
-        de,
-        ate,
-      );
-      for (const p of gerados) {
-        const lista = porDia.get(p.data) ?? [];
-        lista.push({
-          tipo: p.tipo,
-          tipo_turno_id: p.tipo_turno_id,
-          hora_inicio: p.hora_inicio,
-          hora_fim: p.hora_fim,
+    if (cadastro && celulas.length > 0) {
+      const ciclo: CicloPessoa = { inicio_em: cadastro.inicio_em, celulas };
+      for (const data of diasDoIntervalo(de, ate)) {
+        const tipoTurnoId = turnoDoDia(ciclo, data);
+        if (!tipoTurnoId) continue;
+        const turno = turnoPorId.get(tipoTurnoId);
+        // Uma célula pode apontar para um turno que saiu da legenda; melhor
+        // pular o dia do que pintar uma cor sem significado.
+        if (!turno) continue;
+        dias.set(data, {
+          turno,
+          horario: horarioDoTurno(turno),
+          indisponivel: indisponibilidade(funcionario.id, data, contexto.ferias, contexto.ausencias),
         });
-        porDia.set(p.data, lista);
       }
     }
 
-    const dias = new Map<IsoDate, DiaProjetado>();
-    for (const [data, turnos] of porDia) {
-      const turno = turnoDeDetalhes(turnos, contexto.legenda);
-      // O horário que interessa mostrar é o do turno de trabalho; quando só há
-      // acionamento, é a janela em que a pessoa pode ser chamada.
-      const principal = turnos.find((t) => t.tipo !== 'sobreaviso' && t.tipo !== 'backup') ?? turnos[0];
-      dias.set(data, {
-        turno,
-        horario: `${principal.hora_inicio}–${principal.hora_fim}`,
-        indisponivel: indisponibilidade(funcionario.id, data, contexto.ferias, contexto.ausencias),
-      });
-    }
-
     /*
-     * Ajustes de dia solto vêm por último e vencem o padrão: é assim que se
-     * troca quem cobre um sábado sem mexer nas outras semanas do ciclo. Uma
-     * exceção sem turno é folga — inclusive apagando o dia que o ciclo previa.
+     * Ajustes de dia solto vêm por último e vencem o cadastro: é assim que se
+     * troca quem cobre um sábado sem mexer nas outras semanas do ciclo. Sem
+     * turno, o ajuste esvazia o dia que o ciclo previa.
      */
     for (const excecao of contexto.escalaExcecoes) {
       if (excecao.funcionario_id !== funcionario.id) continue;
       if (excecao.data < de || excecao.data > ate) continue;
 
-      const turno = excecao.tipo_turno_id
-        ? contexto.legenda.find((t) => t.id === excecao.tipo_turno_id)
-        : undefined;
-
+      const turno = excecao.tipo_turno_id ? turnoPorId.get(excecao.tipo_turno_id) : undefined;
       if (!turno) {
         dias.delete(excecao.data);
         continue;
       }
       dias.set(excecao.data, {
         turno,
-        horario: turno.trabalha
-          ? `${turno.hora_inicio}–${turno.hora_fim}`
-          : `${turno.acionamento_inicio}–${turno.acionamento_fim}`,
+        horario: horarioDoTurno(turno),
         ajustado: true,
         indisponivel: indisponibilidade(
           funcionario.id,
@@ -201,7 +177,7 @@ export function projetarEscalaEquipe(
       });
     }
 
-    return { funcionario, escalas: escalasDaPessoa, dias };
+    return { funcionario, cadastro, ciclo: semanasDoCiclo(celulas), dias };
   });
 }
 
@@ -219,7 +195,7 @@ export function coberturaPorDia(linhas: LinhaProjecao[], dias: IsoDate[]): Map<I
     for (const linha of linhas) {
       const dia = linha.dias.get(data);
       if (!dia || dia.indisponivel) continue;
-      if (dia.turno.id === FOLGA_ID || dia.turno.acionamento === 'backup') continue;
+      if (ehFolga(dia.turno) || dia.turno.acionamento === 'backup') continue;
       total++;
     }
     cobertura.set(data, total);

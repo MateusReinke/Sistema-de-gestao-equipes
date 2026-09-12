@@ -18,10 +18,9 @@ import type {
   ContatoCliente,
   Departamento,
   Equipe,
-  Escala,
-  EscalaDetalhe,
+  EscalaCadastro,
+  EscalaCelula,
   EscalaExcecao,
-  EscalaFuncionario,
   EventoAuditoria,
   Ferias,
   Funcionario,
@@ -54,10 +53,9 @@ export interface BaseDados {
   equipes: Equipe[];
   funcionarios: Funcionario[];
   usuarios: Usuario[];
-  escalas: Escala[];
   tiposTurno: TipoTurno[];
-  escalaDetalhes: EscalaDetalhe[];
-  escalaFuncionarios: EscalaFuncionario[];
+  escalaCadastros: EscalaCadastro[];
+  escalaCelulas: EscalaCelula[];
   escalaExcecoes: EscalaExcecao[];
   plantoes: Plantao[];
   ferias: Ferias[];
@@ -82,10 +80,9 @@ const BASE_VAZIA: BaseDados = {
   equipes: [],
   funcionarios: [],
   usuarios: [],
-  escalas: [],
   tiposTurno: [],
-  escalaDetalhes: [],
-  escalaFuncionarios: [],
+  escalaCadastros: [],
+  escalaCelulas: [],
   escalaExcecoes: [],
   plantoes: [],
   ferias: [],
@@ -125,18 +122,12 @@ interface ContextoDados extends BaseDados {
   desligarFuncionario: (id: string, data: string) => Promise<void>;
   salvarEquipe: (e: Equipe) => Promise<void>;
   salvarDepartamento: (d: Departamento) => Promise<void>;
-  salvarEscala: (e: Escala) => Promise<void>;
   salvarTipoTurno: (t: TipoTurno) => Promise<void>;
   removerTipoTurno: (id: string) => Promise<void>;
   /** Turnos e vínculos caem junto (cascata); plantões já gerados ficam, órfãos. */
-  removerEscala: (id: string) => Promise<void>;
-  salvarEscalaDetalhe: (d: EscalaDetalhe) => Promise<void>;
-  removerEscalaDetalhe: (id: string) => Promise<void>;
-  salvarEscalaFuncionario: (v: EscalaFuncionario) => Promise<void>;
   /** Ajuste de um dia solto, por cima do padrão do ciclo. */
   salvarEscalaExcecao: (e: EscalaExcecao) => Promise<void>;
   removerEscalaExcecao: (id: string) => Promise<void>;
-  removerEscalaFuncionario: (id: string) => Promise<void>;
   salvarSistema: (s: Sistema) => Promise<void>;
   salvarComunicado: (c: Comunicado) => Promise<void>;
   removerComunicado: (id: string) => Promise<void>;
@@ -165,10 +156,11 @@ interface ContextoDados extends BaseDados {
     ate: string,
     sobrescrever?: boolean,
   ) => Promise<{ criados: number; atualizados: number; pulados: number }>;
-  /** Troca a grade do ciclo inteira de uma vez — ver `/api/escalas/:id/grade`. */
-  salvarGradeEscala: (
-    escalaId: string,
-    turnos: Omit<EscalaDetalhe, 'id' | 'escala_id'>[],
+  /** Troca o ciclo inteiro de uma pessoa — ver `/api/funcionarios/:id/ciclo`. */
+  salvarCiclo: (
+    funcionarioId: string,
+    inicioEm: string,
+    celulas: Omit<EscalaCelula, 'id' | 'cadastro_id'>[],
   ) => Promise<void>;
 
   decidir: (
@@ -273,10 +265,14 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
     [aoConcluir, aoFalhar],
   );
 
-  const salvarGradeEscala = useCallback(
-    async (escalaId: string, turnos: Omit<EscalaDetalhe, 'id' | 'escala_id'>[]) => {
+  const salvarCiclo = useCallback(
+    async (
+      funcionarioId: string,
+      inicioEm: string,
+      celulas: Omit<EscalaCelula, 'id' | 'cadastro_id'>[],
+    ) => {
       try {
-        await api.put(`/api/escalas/${escalaId}/grade`, { turnos });
+        await api.put(`/api/funcionarios/${funcionarioId}/ciclo`, { inicio_em: inicioEm, celulas });
         aoConcluir();
       } catch (erro) {
         aoFalhar(erro);
@@ -311,16 +307,10 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
       desligarFuncionario,
       salvarEquipe: salvarEm('equipes'),
       salvarDepartamento: salvarEm('departamentos'),
-      salvarEscala: salvarEm('escalas'),
       salvarTipoTurno: salvarEm('tiposTurno'),
       removerTipoTurno: removerDe('tiposTurno'),
-      removerEscala: removerDe('escalas'),
-      salvarEscalaDetalhe: salvarEm('escalaDetalhes'),
-      removerEscalaDetalhe: removerDe('escalaDetalhes'),
-      salvarEscalaFuncionario: salvarEm('escalaFuncionarios'),
       salvarEscalaExcecao: salvarEm('escalaExcecoes'),
       removerEscalaExcecao: removerDe('escalaExcecoes'),
-      removerEscalaFuncionario: removerDe('escalaFuncionarios'),
       salvarSistema: salvarEm('sistemas'),
       salvarComunicado: salvarEm('comunicados'),
       removerComunicado: removerDe('comunicados'),
@@ -344,7 +334,7 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
       salvarPlantao: salvarEm('plantoes'),
       removerPlantao: removerDe('plantoes'),
       gerarPlantoesEquipe,
-      salvarGradeEscala,
+      salvarCiclo,
 
       decidir,
     }),
@@ -357,7 +347,7 @@ export function DadosProvider({ children }: { children: React.ReactNode }) {
       decidir,
       desligarFuncionario,
       gerarPlantoesEquipe,
-      salvarGradeEscala,
+      salvarCiclo,
     ],
   );
 

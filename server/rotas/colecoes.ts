@@ -197,14 +197,6 @@ export const COLECOES: Colecao[] = [
 
   /* ----------------------------------------------------- escalas e plantões */
   {
-    nome: 'escalas',
-    tabela: t.escalas,
-    entidade: 'Escala',
-    escrita: { tipo: 'rh' },
-    schema: de(t.escalas),
-    rotulo: nomeDe,
-  },
-  {
     nome: 'tiposTurno',
     tabela: t.tiposTurno,
     entidade: 'Turno da legenda',
@@ -213,12 +205,20 @@ export const COLECOES: Colecao[] = [
     rotulo: (i) => `${i.codigo} ${i.rotulo}`,
   },
   {
-    nome: 'escalaDetalhes',
-    tabela: t.escalaDetalhes,
-    entidade: 'Turno de escala',
+    nome: 'escalaCadastros',
+    tabela: t.escalaCadastros,
+    entidade: 'Cadastro de escala',
     escrita: { tipo: 'rh' },
-    schema: de(t.escalaDetalhes),
-    rotulo: (i) => `${i.hora_inicio}–${i.hora_fim}`,
+    schema: de(t.escalaCadastros),
+    rotulo: (i) => String(i.funcionario_id),
+  },
+  {
+    nome: 'escalaCelulas',
+    tabela: t.escalaCelulas,
+    entidade: 'Célula do ciclo',
+    escrita: { tipo: 'rh' },
+    schema: de(t.escalaCelulas),
+    rotulo: (i) => `Semana ${i.semana}, dia ${i.dia_semana}`,
   },
   {
     nome: 'escalaExcecoes',
@@ -227,14 +227,6 @@ export const COLECOES: Colecao[] = [
     escrita: { tipo: 'rh' },
     schema: de(t.escalaExcecoes),
     rotulo: (i) => String(i.data),
-  },
-  {
-    nome: 'escalaFuncionarios',
-    tabela: t.escalaFuncionarios,
-    entidade: 'Vínculo de escala',
-    escrita: { tipo: 'rh' },
-    schema: de(t.escalaFuncionarios),
-    rotulo: (i) => String(i.id),
   },
   {
     nome: 'plantoes',

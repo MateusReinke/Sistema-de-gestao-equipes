@@ -13,7 +13,8 @@ import * as t from '../db/schema';
 import { novoId, registrar } from '../auditoria';
 import { ehRh, exigir, alcancaFuncionario } from '../auth/permissoes';
 import { exigirSessao } from './auth';
-import { plantoesGerados } from '@/lib/geracaoPlantoes';
+import { MAXIMO_SEMANAS, turnoDoDia } from '@/lib/cicloEscala';
+import { diasDoIntervalo } from '@/lib/projecaoEscala';
 import { hoje } from '@/lib/date';
 
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -221,22 +222,16 @@ export function rotasAcoes(app: FastifyInstance): void {
       return reply.send({ criados: 0, atualizados: 0, pulados: 0 });
     }
 
-    const vinculos = await db
-      .select()
-      .from(t.escalaFuncionarios)
-      .where(inArray(t.escalaFuncionarios.funcionario_id, funcionarioIds));
-
-    const escalaIds = [...new Set(vinculos.map((v) => v.escala_id))];
-    const [escalas, detalhes] = escalaIds.length
-      ? await Promise.all([
-          db.select().from(t.escalas).where(inArray(t.escalas.id, escalaIds)),
-          db.select().from(t.escalaDetalhes).where(inArray(t.escalaDetalhes.escala_id, escalaIds)),
-        ])
-      : [[], []];
-
-    // Ajustes de dia solto vencem o padrão do ciclo — o mesmo que a tela da
-    // equipe mostra precisa ser o que é gravado.
-    const [excecoes, tiposTurno] = await Promise.all([
+    /*
+     * Tudo o que a conta precisa: o cadastro de cada pessoa (grade + data
+     * inicial), os ajustes de dia solto e a legenda da equipe. É o mesmo
+     * material que a tela usa — o que se vê no calendário é o que é gravado.
+     */
+    const [cadastros, excecoes, tiposTurno] = await Promise.all([
+      db
+        .select()
+        .from(t.escalaCadastros)
+        .where(inArray(t.escalaCadastros.funcionario_id, funcionarioIds)),
       db
         .select()
         .from(t.escalaExcecoes)
@@ -249,86 +244,117 @@ export function rotasAcoes(app: FastifyInstance): void {
         ),
       db.select().from(t.tiposTurno).where(eq(t.tiposTurno.equipe_id, equipe.id)),
     ]);
+
+    const celulas = cadastros.length
+      ? await db
+          .select()
+          .from(t.escalaCelulas)
+          .where(
+            inArray(
+              t.escalaCelulas.cadastro_id,
+              cadastros.map((c) => c.id),
+            ),
+          )
+      : [];
+
     const turnoPorId = new Map(tiposTurno.map((x) => [x.id, x]));
     const excecaoPorDia = new Map(excecoes.map((x) => [`${x.funcionario_id}|${x.data}`, x]));
 
-    const escalaPorId = new Map(escalas.map((e) => [e.id, e]));
-    const detalhesPorEscala = new Map<string, typeof detalhes>();
-    for (const d of detalhes) {
-      const lista = detalhesPorEscala.get(d.escala_id) ?? [];
-      lista.push(d);
-      detalhesPorEscala.set(d.escala_id, lista);
+    const celulasPorCadastro = new Map<string, typeof celulas>();
+    for (const celula of celulas) {
+      const lista = celulasPorCadastro.get(celula.cadastro_id) ?? [];
+      lista.push(celula);
+      celulasPorCadastro.set(celula.cadastro_id, lista);
     }
+
+    const dias = diasDoIntervalo(de, ate);
+
+    /** As janelas que um turno ocupa no dia: trabalho, acionamento, ou as duas. */
+    const janelasDoTurno = (turno: (typeof tiposTurno)[number]) =>
+      [
+        turno.trabalha
+          ? { inicio: turno.hora_inicio, fim: turno.hora_fim, tipo: turno.tipo_plantao }
+          : null,
+        turno.acionamento !== 'nenhum'
+          ? {
+              inicio: turno.acionamento_inicio,
+              fim: turno.acionamento_fim,
+              tipo: turno.acionamento === 'plantao' ? ('sobreaviso' as const) : ('backup' as const),
+            }
+          : null,
+      ].filter((j): j is NonNullable<typeof j> => j !== null);
 
     let criados = 0;
     let atualizados = 0;
     let pulados = 0;
 
     await db.transaction(async (tx) => {
-      for (const vinculo of vinculos) {
-        const escala = escalaPorId.get(vinculo.escala_id);
-        if (!escala || !escala.ativo) continue;
+      for (const cadastro of cadastros) {
+        const grade = celulasPorCadastro.get(cadastro.id) ?? [];
+        if (grade.length === 0) continue;
 
-        const candidatos = plantoesGerados(
-          vinculo,
-          detalhesPorEscala.get(escala.id) ?? [],
-          escala.ciclo_semanas,
-          de,
-          ate,
-        ).filter((c) => !excecaoPorDia.has(`${c.funcionario_id}|${c.data}`));
+        for (const data of dias) {
+          // O ajuste manual do dia vence o ciclo, e é materializado depois.
+          if (excecaoPorDia.has(`${cadastro.funcionario_id}|${data}`)) continue;
 
-        for (const candidato of candidatos) {
-          const [existente] = await tx
-            .select({ id: t.plantoes.id, gerado_automaticamente: t.plantoes.gerado_automaticamente })
-            .from(t.plantoes)
-            .where(
-              and(
-                eq(t.plantoes.funcionario_id, candidato.funcionario_id),
-                eq(t.plantoes.data, candidato.data),
-                eq(t.plantoes.hora_inicio, candidato.hora_inicio),
-              ),
-            )
-            .limit(1);
+          const tipoTurnoId = turnoDoDia({ inicio_em: cadastro.inicio_em, celulas: grade }, data);
+          const turno = tipoTurnoId ? turnoPorId.get(tipoTurnoId) : undefined;
+          if (!turno) continue;
 
-          if (existente) {
-            if (!existente.gerado_automaticamente && !sobrescrever) {
-              pulados++;
+          for (const janela of janelasDoTurno(turno)) {
+            const [existente] = await tx
+              .select({
+                id: t.plantoes.id,
+                gerado_automaticamente: t.plantoes.gerado_automaticamente,
+              })
+              .from(t.plantoes)
+              .where(
+                and(
+                  eq(t.plantoes.funcionario_id, cadastro.funcionario_id),
+                  eq(t.plantoes.data, data),
+                  eq(t.plantoes.hora_inicio, janela.inicio),
+                ),
+              )
+              .limit(1);
+
+            if (existente) {
+              if (!existente.gerado_automaticamente && !sobrescrever) {
+                pulados++;
+                continue;
+              }
+              await tx
+                .update(t.plantoes)
+                .set({
+                  hora_fim: janela.fim,
+                  tipo: janela.tipo,
+                  tipo_turno_id: turno.id,
+                  gerado_automaticamente: true,
+                })
+                .where(eq(t.plantoes.id, existente.id));
+              atualizados++;
               continue;
             }
-            await tx
-              .update(t.plantoes)
-              .set({
-                hora_fim: candidato.hora_fim,
-                tipo: candidato.tipo,
-                tipo_turno_id: candidato.tipo_turno_id ?? null,
-                escala_id: candidato.escala_id,
-                gerado_automaticamente: true,
-              })
-              .where(eq(t.plantoes.id, existente.id));
-            atualizados++;
-            continue;
-          }
 
-          await tx.insert(t.plantoes).values({
-            id: novoId('p'),
-            funcionario_id: candidato.funcionario_id,
-            escala_id: candidato.escala_id,
-            data: candidato.data,
-            hora_inicio: candidato.hora_inicio,
-            hora_fim: candidato.hora_fim,
-            tipo: candidato.tipo,
-            tipo_turno_id: candidato.tipo_turno_id ?? null,
-            status: candidato.data < hoje() ? 'confirmado' : 'previsto',
-            gerado_automaticamente: true,
-          });
-          criados++;
+            await tx.insert(t.plantoes).values({
+              id: novoId('p'),
+              funcionario_id: cadastro.funcionario_id,
+              data,
+              hora_inicio: janela.inicio,
+              hora_fim: janela.fim,
+              tipo: janela.tipo,
+              tipo_turno_id: turno.id,
+              status: data < hoje() ? 'confirmado' : 'previsto',
+              gerado_automaticamente: true,
+            });
+            criados++;
+          }
         }
       }
 
       /*
-       * O que as exceções pedem entra por último. Uma exceção sem turno é
-       * folga: o dia simplesmente não gera plantão, e um que a rodada
-       * anterior tenha criado ali é retirado.
+       * O que os ajustes pedem entra por último. Um ajuste sem turno esvazia o
+       * dia: ele simplesmente não gera plantão, e o que uma rodada anterior
+       * tenha criado ali é retirado.
        */
       for (const excecao of excecoes) {
         await tx
@@ -344,24 +370,10 @@ export function rotasAcoes(app: FastifyInstance): void {
         const turno = excecao.tipo_turno_id ? turnoPorId.get(excecao.tipo_turno_id) : undefined;
         if (!turno) continue;
 
-        const janelas = [
-          turno.trabalha
-            ? { inicio: turno.hora_inicio, fim: turno.hora_fim, tipo: turno.tipo_plantao }
-            : null,
-          turno.acionamento !== 'nenhum'
-            ? {
-                inicio: turno.acionamento_inicio,
-                fim: turno.acionamento_fim,
-                tipo: turno.acionamento === 'plantao' ? ('sobreaviso' as const) : ('backup' as const),
-              }
-            : null,
-        ].filter((j): j is NonNullable<typeof j> => j !== null);
-
-        for (const janela of janelas) {
+        for (const janela of janelasDoTurno(turno)) {
           await tx.insert(t.plantoes).values({
             id: novoId('p'),
             funcionario_id: excecao.funcionario_id,
-            escala_id: null,
             tipo_turno_id: turno.id,
             data: excecao.data,
             hora_inicio: janela.inicio,
@@ -388,76 +400,107 @@ export function rotasAcoes(app: FastifyInstance): void {
   });
 
   /**
-   * Substitui a grade do ciclo de uma escala inteira, de uma vez.
+   * Substitui o ciclo inteiro de uma pessoa, de uma vez.
    *
-   * A tela pinta a grade célula a célula — e uma célula pode virar duas linhas
-   * de turno (trabalho mais acionamento) ou nenhuma (folga). Fazer isso pelo
-   * CRUD genérico seria uma sequência de PUTs e DELETEs por clique, capaz de
-   * deixar a grade pela metade se uma delas falhasse. Aqui a grade chega
-   * inteira e é trocada numa transação só.
+   * A tela pinta a grade célula a célula, e o ciclo cresce e encolhe junto com
+   * as semanas preenchidas. Fazer isso pelo CRUD genérico seria um PUT ou
+   * DELETE por clique, capaz de deixar a grade pela metade se um deles
+   * falhasse — e uma grade pela metade muda o tamanho do ciclo, ou seja, muda
+   * todo o resto do calendário. Aqui a grade chega inteira e é trocada numa
+   * transação só.
    */
   app.put<{
     Params: { id: string };
     Body: {
-      turnos?: {
-        semana_do_ciclo: number;
-        dia_semana: number;
-        hora_inicio: string;
-        hora_fim: string;
-        tipo: string;
-        tipo_turno_id?: string | null;
-      }[];
+      inicio_em?: string;
+      celulas?: { semana: number; dia_semana: number; tipo_turno_id: string }[];
     };
-  }>('/api/escalas/:id/grade', async (req, reply) => {
+  }>('/api/funcionarios/:id/ciclo', async (req, reply) => {
     const sessao = await exigirSessao(req);
-    exigir(ehRh(sessao), 'Só o RH e a administração alteram a grade de uma escala.');
+    exigir(ehRh(sessao), 'Só o RH e a administração alteram o cadastro da escala.');
 
-    const [escala] = await db.select().from(t.escalas).where(eq(t.escalas.id, req.params.id)).limit(1);
-    if (!escala) return reply.code(404).send({ erro: 'Escala não encontrada.' });
+    const [funcionario] = await db
+      .select()
+      .from(t.funcionarios)
+      .where(eq(t.funcionarios.id, req.params.id))
+      .limit(1);
+    if (!funcionario) return reply.code(404).send({ erro: 'Funcionário não encontrado.' });
 
-    const turnos = req.body?.turnos ?? [];
+    const inicioEm = req.body?.inicio_em ?? '';
+    if (!DATA_ISO.test(inicioEm)) {
+      return reply.code(400).send({ erro: '"inicio_em" precisa ser uma data ISO válida.' });
+    }
 
-    // A grade cobre só o ciclo declarado: aceitar uma semana 4 numa escala de
-    // 3 semanas gravaria turno que nunca seria gerado.
-    const foraDoCiclo = turnos.find(
-      (t) => t.semana_do_ciclo < 1 || t.semana_do_ciclo > escala.ciclo_semanas,
-    );
+    const celulas = req.body?.celulas ?? [];
+    const foraDoCiclo = celulas.find((c) => c.semana < 1 || c.semana > MAXIMO_SEMANAS);
     if (foraDoCiclo) {
-      return reply.code(400).send({
-        erro: `Semana ${foraDoCiclo.semana_do_ciclo} está fora do ciclo de ${escala.ciclo_semanas} semana(s).`,
-      });
+      return reply
+        .code(400)
+        .send({ erro: `A semana precisa estar entre 1 e ${MAXIMO_SEMANAS}.` });
     }
-    const foraDaSemana = turnos.find((t) => t.dia_semana < 0 || t.dia_semana > 6);
+    const foraDaSemana = celulas.find((c) => c.dia_semana < 0 || c.dia_semana > 6);
     if (foraDaSemana) {
-      return reply.code(400).send({ erro: 'Dia da semana precisa estar entre 0 (domingo) e 6 (sábado).' });
+      return reply
+        .code(400)
+        .send({ erro: 'Dia da semana precisa estar entre 0 (domingo) e 6 (sábado).' });
     }
 
-    await db.transaction(async (tx) => {
-      await tx.delete(t.escalaDetalhes).where(eq(t.escalaDetalhes.escala_id, escala.id));
+    // Uma célula apontando para turno de outra equipe pintaria uma cor que a
+    // legenda desta equipe não tem — e sumiria do calendário.
+    const legenda = await db
+      .select({ id: t.tiposTurno.id })
+      .from(t.tiposTurno)
+      .where(eq(t.tiposTurno.equipe_id, funcionario.equipe_id));
+    const daEquipe = new Set(legenda.map((x) => x.id));
+    const intrusa = celulas.find((c) => !daEquipe.has(c.tipo_turno_id));
+    if (intrusa) {
+      return reply
+        .code(400)
+        .send({ erro: 'Turno não pertence à legenda da equipe desta pessoa.' });
+    }
 
-      if (turnos.length > 0) {
-        await tx.insert(t.escalaDetalhes).values(
-          turnos.map((turno) => ({
-            id: novoId('ed'),
-            escala_id: escala.id,
-            semana_do_ciclo: turno.semana_do_ciclo,
-            dia_semana: turno.dia_semana,
-            hora_inicio: turno.hora_inicio,
-            hora_fim: turno.hora_fim,
-            tipo: turno.tipo as typeof escala.turno_tipo,
-            tipo_turno_id: turno.tipo_turno_id ?? null,
+    const cadastroId = await db.transaction(async (tx) => {
+      const [existente] = await tx
+        .select()
+        .from(t.escalaCadastros)
+        .where(eq(t.escalaCadastros.funcionario_id, funcionario.id))
+        .limit(1);
+
+      const id = existente?.id ?? novoId('ec');
+      if (existente) {
+        await tx
+          .update(t.escalaCadastros)
+          .set({ inicio_em: inicioEm })
+          .where(eq(t.escalaCadastros.id, id));
+        await tx.delete(t.escalaCelulas).where(eq(t.escalaCelulas.cadastro_id, id));
+      } else {
+        await tx
+          .insert(t.escalaCadastros)
+          .values({ id, funcionario_id: funcionario.id, inicio_em: inicioEm, observacao: '' });
+      }
+
+      if (celulas.length > 0) {
+        await tx.insert(t.escalaCelulas).values(
+          celulas.map((c) => ({
+            id: novoId('ecl'),
+            cadastro_id: id,
+            semana: c.semana,
+            dia_semana: c.dia_semana,
+            tipo_turno_id: c.tipo_turno_id,
           })),
         );
       }
+      return id;
     });
 
+    const semanas = celulas.reduce((maior, c) => Math.max(maior, c.semana), 0);
     await registrar(sessao, {
       acao: 'atualizou',
-      entidade: 'Escala',
-      entidade_id: escala.id,
-      descricao: `Grade de ${escala.nome} redefinida com ${turnos.length} turno(s)`,
+      entidade: 'Cadastro de escala',
+      entidade_id: cadastroId,
+      descricao: `${funcionario.nome}: ciclo de ${semanas} semana(s), a partir de ${inicioEm}`,
     });
 
-    return reply.send({ turnos: turnos.length });
+    return reply.send({ cadastro_id: cadastroId, semanas, celulas: celulas.length });
   });
 }

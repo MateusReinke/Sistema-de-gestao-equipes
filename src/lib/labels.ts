@@ -13,14 +13,12 @@ import type {
   StatusContrato,
   TipoContato,
   NivelAcesso,
-  PapelEscala,
   StatusFuncionario,
   StatusPlantao,
   StatusSolicitacao,
   TipoAcesso,
   TipoAusencia,
   TipoContrato,
-  TipoEscala,
   TipoPendencia,
   TipoPlantao,
   UserRole,
@@ -73,13 +71,6 @@ export const TIPO_AUSENCIA: Record<TipoAusencia, string> = {
   treinamento: 'Treinamento',
 };
 
-export const TIPO_ESCALA: Record<TipoEscala, string> = {
-  '12x36': '12×36',
-  '5x2': '5×2',
-  '6x1': '6×1',
-  personalizada: 'Personalizada',
-};
-
 export const TIPO_PLANTAO: Record<TipoPlantao, string> = {
   diurno: 'Diurno',
   noturno: 'Noturno',
@@ -87,12 +78,6 @@ export const TIPO_PLANTAO: Record<TipoPlantao, string> = {
   sobreaviso: 'Plantão (sobreaviso)',
   backup: 'Backup de plantão',
   especial: 'Especial',
-};
-
-export const PAPEL_ESCALA: Record<PapelEscala, string> = {
-  trabalho: 'Trabalho',
-  plantao: 'Plantão',
-  backup: 'Backup de plantão',
 };
 
 export const STATUS_PLANTAO: Record<StatusPlantao, string> = {
@@ -232,12 +217,6 @@ export const CLASSE_TIPO_PLANTAO: Record<TipoPlantao, string> = {
   sobreaviso: 'bg-brand-blue/15 text-brand-blue border-brand-blue/30',
   backup: 'bg-destructive/15 text-destructive border-destructive/30',
   especial: 'bg-success/15 text-success-strong border-success/30',
-};
-
-export const CLASSE_PAPEL_ESCALA: Record<PapelEscala, string> = {
-  trabalho: 'bg-primary/15 text-primary border-primary/30',
-  plantao: 'bg-brand-coral/15 text-brand-coral border-brand-coral/30',
-  backup: 'bg-warning/15 text-warning-strong border-warning/30',
 };
 
 export const CLASSE_TIPO_PENDENCIA: Record<TipoPendencia, string> = {

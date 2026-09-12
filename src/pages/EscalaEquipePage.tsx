@@ -51,7 +51,7 @@ import {
   Indicador,
 } from '@/components/comum';
 import { useDados, novoId } from '@/data/store';
-import { EditorEscala } from '@/components/escalas/EditorEscala';
+import { EditorCiclo } from '@/components/escalas/EditorCiclo';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -83,8 +83,7 @@ import { calcularSaldoFerias } from '@/lib/rh';
 import {
   CORES_DISPONIVEIS,
   CORES_TURNO,
-  FOLGA,
-  FOLGA_ID,
+  ehFolga,
   classeDoTurno,
   codigoCurto,
   descricaoDoTurno,
@@ -93,18 +92,8 @@ import {
   type TurnoLegenda,
 } from '@/lib/turnos';
 import { coberturaPorDia, diasDoIntervalo, projetarEscalaEquipe } from '@/lib/projecaoEscala';
-import { STATUS_FUNCIONARIO, CLASSE_STATUS_FUNCIONARIO, TIPO_ESCALA, TIPO_PLANTAO } from '@/lib/labels';
-import { gerarRevezamentoDiario } from '@/lib/composicaoEscalas';
-import { detalhesDoTurno } from '@/lib/turnos';
-import type {
-  Acionamento,
-  CorTurno,
-  Escala,
-  Funcionario,
-  TipoEscala,
-  TipoPlantao,
-  TipoTurno,
-} from '@/types/sgo';
+import { STATUS_FUNCIONARIO, CLASSE_STATUS_FUNCIONARIO, TIPO_PLANTAO } from '@/lib/labels';
+import type { Acionamento, CorTurno, Funcionario, TipoPlantao, TipoTurno } from '@/types/sgo';
 
 export default function EscalaEquipePage() {
   const { id = '' } = useParams();
@@ -112,10 +101,9 @@ export default function EscalaEquipePage() {
   const {
     equipes,
     funcionarios,
-    escalas,
     tiposTurno,
-    escalaDetalhes,
-    escalaFuncionarios,
+    escalaCadastros,
+    escalaCelulas,
     escalaExcecoes,
     ferias,
     ausencias,
@@ -124,11 +112,7 @@ export default function EscalaEquipePage() {
     removerTipoTurno,
     salvarEscalaExcecao,
     removerEscalaExcecao,
-    salvarEscala,
-    removerEscala,
-    salvarGradeEscala,
-    salvarEscalaFuncionario,
-    removerEscalaFuncionario,
+    salvarCiclo,
     salvarFuncionario,
   } = useDados();
   const { podeGerenciar } = useAuth();
@@ -138,24 +122,19 @@ export default function EscalaEquipePage() {
   const [legendaAberta, setLegendaAberta] = useState(false);
   const [pessoaAberta, setPessoaAberta] = useState<Funcionario | null>(null);
   /** Turno que o arrasto e o clique aplicam. */
-  const [pincelId, setPincelId] = useState<string>(FOLGA_ID);
+  const [pincelId, setPincelId] = useState<string>('');
   /** O que está sendo arrastado agora — pessoa ou turno. */
   const [arrastando, setArrastando] = useState<
     { tipo: 'pessoa'; id: string } | { tipo: 'turno'; id: string } | null
   >(null);
   const [alvo, setAlvo] = useState<string | null>(null);
-  const [escalaEmEdicao, setEscalaEmEdicao] = useState<Escala | null>(null);
-  const [escalaEhNova, setEscalaEhNova] = useState(false);
-  const [escalaAExcluir, setEscalaAExcluir] = useState<Escala | null>(null);
+  const [cicloEmEdicao, setCicloEmEdicao] = useState<Funcionario | null>(null);
   const [adicionarPessoa, setAdicionarPessoa] = useState(false);
   const [pessoaParaAdicionar, setPessoaParaAdicionar] = useState('');
 
   const ano = mesAtual.getFullYear();
   const mes = mesAtual.getMonth();
   const hojeIso = hoje();
-  // O rodízio se conta em semanas de calendário, então a referência é o
-  // domingo — assim "posição 1" quer dizer a mesma coisa em qualquer dia.
-  const inicioDaSemanaIso = inicioDaSemana(hojeIso);
 
   const primeiroDia = `${ano}-${String(mes + 1).padStart(2, '0')}-01`;
   const ultimoDia = paraIso(new Date(ano, mes + 1, 0));
@@ -164,8 +143,8 @@ export default function EscalaEquipePage() {
   const equipe = equipes.find((e) => e.id === id);
   const legenda = useMemo(() => legendaDaEquipe(tiposTurno, id), [tiposTurno, id]);
   const legendaPropria = tiposTurno.some((t) => t.equipe_id === id);
-  const paleta = useMemo(() => [FOLGA, ...legenda], [legenda]);
-  const pincel = paleta.find((t) => t.id === pincelId) ?? FOLGA;
+  const folga = useMemo(() => legenda.find(ehFolga) ?? legenda[0], [legenda]);
+  const pincel = legenda.find((t) => t.id === pincelId) ?? folga;
 
   const linhas = useMemo(
     () =>
@@ -173,9 +152,8 @@ export default function EscalaEquipePage() {
         ? projetarEscalaEquipe(
             {
               funcionarios,
-              escalas,
-              escalaDetalhes,
-              escalaFuncionarios,
+              escalaCadastros,
+              escalaCelulas,
               escalaExcecoes,
               ferias,
               ausencias,
@@ -186,7 +164,7 @@ export default function EscalaEquipePage() {
             ultimoDia,
           )
         : [],
-    [equipe, funcionarios, escalas, escalaDetalhes, escalaFuncionarios, escalaExcecoes, ferias, ausencias, legenda, primeiroDia, ultimoDia],
+    [equipe, funcionarios, escalaCadastros, escalaCelulas, escalaExcecoes, ferias, ausencias, legenda, primeiroDia, ultimoDia],
   );
 
   const cobertura = useMemo(() => coberturaPorDia(linhas, dias), [linhas, dias]);
@@ -195,8 +173,7 @@ export default function EscalaEquipePage() {
     (soma, l) => soma + [...l.dias.values()].filter((d) => d.indisponivel).length,
     0,
   );
-  const semEscala = linhas.filter((l) => l.dias.size === 0);
-  const escalasDaEquipe = escalas.filter((e) => e.equipe_id === id);
+  const semEscala = linhas.filter((l) => l.ciclo === 0);
 
   const gerar = async () => {
     if (!equipe) return;
@@ -230,8 +207,7 @@ export default function EscalaEquipePage() {
 
     // Comparar por rótulo, e não por id: a equipe pode estar usando a legenda
     // embutida, cujos ids mudam assim que ela ganha a própria.
-    const voltaAoPadrao =
-      !doPadrao?.ajustado && (doPadrao?.turno.rotulo ?? FOLGA.rotulo) === turno.rotulo;
+    const voltaAoPadrao = !doPadrao?.ajustado && doPadrao?.turno.rotulo === turno.rotulo;
 
     try {
       if (voltaAoPadrao) {
@@ -239,15 +215,12 @@ export default function EscalaEquipePage() {
         return;
       }
 
-      let tipoTurnoId: string | null = null;
-      if (turno.id !== FOLGA_ID) {
-        // Um ajuste aponta para uma linha real de `tipos_turno`. Se a equipe
-        // ainda está na legenda embutida, é aqui que ela ganha a própria — o
-        // desenho continua idêntico, só passa a existir no banco.
-        const propria = turno.equipe_id === id ? legenda : await copiarLegendaParaEquipe();
-        tipoTurnoId = propria.find((t) => t.rotulo === turno.rotulo)?.id ?? null;
-        if (!tipoTurnoId) return;
-      }
+      // Um ajuste aponta para uma linha real de `tipos_turno`. Se a equipe
+      // ainda está na legenda embutida, é aqui que ela ganha a própria — o
+      // desenho continua idêntico, só passa a existir no banco.
+      const propria = turno.equipe_id === id ? legenda : await copiarLegendaParaEquipe();
+      const tipoTurnoId = propria.find((t) => t.rotulo === turno.rotulo)?.id ?? null;
+      if (!tipoTurnoId) return;
 
       await salvarEscalaExcecao({
         id: existente?.id ?? novoId('ex'),
@@ -284,78 +257,14 @@ export default function EscalaEquipePage() {
     // Arrastar uma pessoa escala aquela pessoa no dia; arrastar um turno pinta
     // a célula em que se soltou.
     if (arrastando.tipo === 'pessoa') {
-      await ajustarDia(arrastando.id, data, pincel.id === FOLGA_ID ? (legenda[0] ?? FOLGA) : pincel);
+      // Arrastar alguém escala a pessoa: folga como pincel não faria sentido.
+      const turno = ehFolga(pincel) ? (legenda.find((t) => !ehFolga(t)) ?? pincel) : pincel;
+      await ajustarDia(arrastando.id, data, turno);
     } else {
-      const turno = paleta.find((t) => t.id === arrastando.id) ?? FOLGA;
-      await ajustarDia(funcionarioIdDaLinha, data, turno);
+      const turno = legenda.find((t) => t.id === arrastando.id);
+      if (turno) await ajustarDia(funcionarioIdDaLinha, data, turno);
     }
     setArrastando(null);
-  };
-
-  /**
-   * Cria uma escala já com o padrão do modelo escolhido.
-   *
-   * Um par 12×36 é a escala mais fácil de montar errado à mão — o modelo já
-   * entrega o ciclo de 2 posições e a grade de dias alternados, bastando dizer
-   * quem ocupa cada posição.
-   */
-  const novaEscala = async (modelo: 'em-branco' | '12x36' | 'comercial' | 'plantao') => {
-    const base: Escala = {
-      id: novoId('esc'),
-      nome: '',
-      tipo: 'personalizada',
-      descricao: '',
-      equipe_id: id,
-      ciclo_semanas: 1,
-      inicio_em: inicioDaSemanaIso,
-      papel: 'trabalho',
-      turno_tipo: 'comercial',
-      turno_inicio: '08:00',
-      turno_fim: '17:00',
-      sobreaviso_inicio: '00:00',
-      sobreaviso_fim: '23:59',
-      ativo: true,
-    };
-
-    const molde: Record<typeof modelo, Partial<Escala>> = {
-      'em-branco': {},
-      '12x36': { nome: 'Novo 12×36', tipo: '12x36', ciclo_semanas: 2 },
-      comercial: { nome: 'Novo comercial', tipo: '5x2', ciclo_semanas: 1 },
-      plantao: { nome: 'Novo plantão', tipo: 'personalizada', ciclo_semanas: 2, papel: 'plantao' },
-    };
-    const escala: Escala = { ...base, ...molde[modelo] };
-
-    try {
-      await salvarEscala(escala);
-
-      if (modelo === '12x36') {
-        // Dias alternados: o modelo já nasce com a grade certa.
-        const par = gerarRevezamentoDiario({
-          diaBase: inicioDaSemanaIso,
-          horaInicio: '19:00',
-          horaFim: '07:00',
-          tipo: 'noturno',
-        });
-        await salvarGradeEscala(escala.id, par.detalhes);
-      } else if (modelo === 'comercial') {
-        const turno = legenda[0] ?? FOLGA;
-        await salvarGradeEscala(
-          escala.id,
-          [1, 2, 3, 4, 5].flatMap((dia) => detalhesDoTurno(turno, 1, dia)),
-        );
-      } else if (modelo === 'plantao') {
-        const turno = legenda.find((t) => t.acionamento === 'plantao') ?? legenda[0] ?? FOLGA;
-        await salvarGradeEscala(
-          escala.id,
-          [0, 1, 2, 3, 4, 5, 6].flatMap((dia) => detalhesDoTurno(turno, 1, dia)),
-        );
-      }
-
-      setEscalaEmEdicao(escala);
-      setEscalaEhNova(false);
-    } catch {
-      // Erro já virou toast em useDados().
-    }
   };
 
   /** Move uma pessoa para esta equipe. */
@@ -383,7 +292,7 @@ export default function EscalaEquipePage() {
           cabecalho: `${Number(data.slice(8))} ${DIAS_SEMANA[diaDaSemana(data)]}`,
           valor: (l: (typeof linhas)[number]) => {
             const dia = l.dias.get(data);
-            if (!dia) return FOLGA.rotulo;
+            if (!dia) return '';
             return dia.indisponivel
               ? `${dia.turno.rotulo} (${dia.indisponivel})`
               : dia.turno.rotulo;
@@ -444,7 +353,7 @@ export default function EscalaEquipePage() {
           tom={conflitos > 0 ? 'warning' : 'success'}
         />
         <Indicador
-          rotulo="Sem escala"
+          rotulo="Sem cadastro"
           valor={semEscala.length}
           icone={UsersRound}
           tom={semEscala.length > 0 ? 'warning' : 'success'}
@@ -453,7 +362,8 @@ export default function EscalaEquipePage() {
 
       {semEscala.length > 0 && (
         <Aviso>
-          Sem nenhuma escala vinculada: {semEscala.map((l) => l.funcionario.nome).join(', ')}.
+          Sem cadastro de escala, então não aparecem no calendário:{' '}
+          {semEscala.map((l) => l.funcionario.nome).join(', ')}.
         </Aviso>
       )}
 
@@ -486,7 +396,7 @@ export default function EscalaEquipePage() {
           {podeGerenciar && linhas.length > 0 && (
             <div className="mb-3 flex flex-wrap items-center gap-1.5 rounded-lg border bg-muted/40 p-2">
               <span className="mr-1 text-[11px] text-muted-foreground">Aplicar:</span>
-              {paleta.map((turno) => (
+              {legenda.map((turno) => (
                 <button
                   key={turno.id}
                   type="button"
@@ -564,8 +474,9 @@ export default function EscalaEquipePage() {
                             </p>
                             <p className="truncate text-[10px] leading-tight text-muted-foreground">
                               {linha.funcionario.cargo}
-                              {linha.escalas.length > 0 &&
-                                ` · ${[...new Set(linha.escalas.map((e) => TIPO_ESCALA[e.tipo]))].join(', ')}`}
+                              {linha.ciclo > 0
+                                ? ` · ciclo de ${linha.ciclo} semana(s)`
+                                : ' · sem cadastro'}
                             </p>
                           </div>
                         </button>
@@ -573,7 +484,7 @@ export default function EscalaEquipePage() {
 
                       {dias.map((data) => {
                         const dia = linha.dias.get(data);
-                        const turno = dia?.turno ?? FOLGA;
+                        const turno = dia?.turno;
                         const diaSemana = diaDaSemana(data);
                         const fimDeSemana = diaSemana === 0 || diaSemana === 6;
 
@@ -599,7 +510,7 @@ export default function EscalaEquipePage() {
                                 void desfazerAjuste(linha.funcionario.id, data);
                               }}
                               title={
-                                dia
+                                dia && turno
                                   ? `${turno.rotulo} · ${dia.horario}${dia.ajustado ? ' · ajustado à mão' : ''}${
                                       dia.indisponivel
                                         ? dia.indisponivel === 'ferias'
@@ -607,15 +518,17 @@ export default function EscalaEquipePage() {
                                           : ' — afastado!'
                                         : ''
                                     }`
-                                  : turno.rotulo
+                                  : 'Fora do ciclo — clique para aplicar o turno escolhido'
                               }
-                              className={`w-full rounded border px-0.5 py-1 text-[9px] font-semibold transition-all ${classeDoTurno(turno)} ${
-                                dia?.indisponivel ? 'opacity-45 line-through' : ''
-                              } ${dia?.ajustado ? 'ring-1 ring-inset ring-foreground/40' : ''} ${
-                                alvo === chave ? 'ring-2 ring-ring' : ''
-                              } ${podeGerenciar ? 'hover:brightness-110' : ''}`}
+                              className={`w-full rounded border px-0.5 py-1 text-[9px] font-semibold transition-all ${
+                                turno ? classeDoTurno(turno) : 'border-dashed text-muted-foreground/40'
+                              } ${dia?.indisponivel ? 'opacity-45 line-through' : ''} ${
+                                dia?.ajustado ? 'ring-1 ring-inset ring-foreground/40' : ''
+                              } ${alvo === chave ? 'ring-2 ring-ring' : ''} ${
+                                podeGerenciar ? 'hover:brightness-110' : ''
+                              }`}
                             >
-                              {codigoCurto(turno)}
+                              {turno ? codigoCurto(turno) : '·'}
                             </button>
                           </td>
                         );
@@ -651,7 +564,7 @@ export default function EscalaEquipePage() {
 
           {/* Legenda centralizada sob o calendário. */}
           <div className="mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t pt-3">
-            {[FOLGA, ...legenda].map((turno) => (
+            {legenda.map((turno) => (
               <span
                 key={turno.id}
                 title={descricaoDoTurno(turno)}
@@ -742,112 +655,58 @@ export default function EscalaEquipePage() {
         </Card>
 
         <Card className="shadow-card">
-          <CardHeader className="flex flex-row items-center justify-between pb-3">
-            <CardTitle className="text-base">Escalas desta equipe</CardTitle>
-            {podeGerenciar && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <CalendarPlus className="mr-2 h-3.5 w-3.5" /> Nova escala
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-72">
-                  <DropdownMenuItem onClick={() => novaEscala('12x36')} className="gap-2.5 py-2.5">
-                    <Repeat className="h-4 w-4 shrink-0 text-primary" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium">12×36 (dia sim, dia não)</p>
-                      <p className="text-xs text-muted-foreground">
-                        2 posições, grade alternada pronta. Basta dizer quem é cada posição.
-                      </p>
-                    </div>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => novaEscala('comercial')} className="gap-2.5 py-2.5">
-                    <CalendarDays className="h-4 w-4 shrink-0 text-primary" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium">Comercial 5×2</p>
-                      <p className="text-xs text-muted-foreground">Segunda a sexta, uma posição só.</p>
-                    </div>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => novaEscala('plantao')} className="gap-2.5 py-2.5">
-                    <ShieldHalf className="h-4 w-4 shrink-0 text-primary" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium">Plantão rotativo</p>
-                      <p className="text-xs text-muted-foreground">
-                        Sobreaviso a semana inteira, girando entre as posições.
-                      </p>
-                    </div>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => novaEscala('em-branco')} className="gap-2.5 py-2.5">
-                    <SlidersHorizontal className="h-4 w-4 shrink-0 text-primary" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium">Em branco</p>
-                      <p className="text-xs text-muted-foreground">Monto a grade do zero.</p>
-                    </div>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Cadastro da escala</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Uma grade por pessoa, no formato da planilha: Semana 1, Semana 2… O ciclo tem o
+              tamanho das semanas preenchidas e volta sozinho para o começo.
+            </p>
           </CardHeader>
           <CardContent>
-            {escalasDaEquipe.length === 0 ? (
+            {linhas.length === 0 ? (
               <EstadoVazio
                 icone={CalendarDays}
-                titulo="Nenhuma escala ainda"
-                descricao="Crie uma escala e o calendário acima se preenche sozinho."
+                titulo="Nenhuma pessoa nesta equipe"
+                descricao="Adicione alguém à equipe para montar o cadastro da escala."
               />
             ) : (
               <div className="space-y-1.5">
-                {escalasDaEquipe.map((e) => {
-                  const vinculados = escalaFuncionarios.filter((v) => v.escala_id === e.id).length;
-                  const semGrade = !escalaDetalhes.some((d) => d.escala_id === e.id);
+                {linhas.map((linha) => {
+                  const cadastro = escalaCadastros.find(
+                    (c) => c.funcionario_id === linha.funcionario.id,
+                  );
                   return (
-                    <div
-                      key={e.id}
-                      className={`flex items-center gap-2 rounded-lg border p-2 ${!e.ativo ? 'opacity-60' : ''}`}
-                    >
+                    <div key={linha.funcionario.id} className="flex items-center gap-2 rounded-lg border p-2">
                       <button
                         type="button"
-                        onClick={() => {
-                          setEscalaEmEdicao(e);
-                          setEscalaEhNova(false);
-                        }}
+                        onClick={() => podeGerenciar && setCicloEmEdicao(linha.funcionario)}
+                        disabled={!podeGerenciar}
                         className="min-w-0 flex-1 text-left"
                       >
-                        <p className="truncate text-sm font-medium">{e.nome}</p>
+                        <p className="truncate text-sm font-medium">{linha.funcionario.nome}</p>
                         <p className="tabular truncate text-[11px] text-muted-foreground">
-                          {e.ciclo_semanas} posição(ões) · {vinculados} pessoa(s)
-                          {semGrade && ' · grade em branco'}
+                          {linha.ciclo > 0
+                            ? `Ciclo de ${linha.ciclo} semana(s) · desde ${formatarData(cadastro?.inicio_em)}`
+                            : 'Sem cadastro — o calendário fica vazio'}
                         </p>
                       </button>
-                      <BadgeStatus
-                        texto={TIPO_ESCALA[e.tipo]}
-                        classe="bg-primary/10 text-primary border-primary/25"
-                        className="text-[10px]"
-                      />
+                      {linha.ciclo === 0 && (
+                        <BadgeStatus
+                          texto="Em branco"
+                          classe="bg-warning/15 text-warning-strong border-warning/30"
+                          className="text-[10px]"
+                        />
+                      )}
                       {podeGerenciar && (
-                        <>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            title="Editar escala"
-                            onClick={() => {
-                              setEscalaEmEdicao(e);
-                              setEscalaEhNova(false);
-                            }}
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-destructive"
-                            title="Excluir escala"
-                            onClick={() => setEscalaAExcluir(e)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          title={`Editar o ciclo de ${linha.funcionario.nome}`}
+                          onClick={() => setCicloEmEdicao(linha.funcionario)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
                       )}
                     </div>
                   );
@@ -858,44 +717,22 @@ export default function EscalaEquipePage() {
         </Card>
       </div>
 
-      <EditorEscala
-        escala={escalaEmEdicao}
-        ehNova={escalaEhNova}
-        aoFechar={() => setEscalaEmEdicao(null)}
+      <EditorCiclo
+        pessoa={cicloEmEdicao}
+        cadastro={escalaCadastros.find((c) => c.funcionario_id === cicloEmEdicao?.id)}
+        celulas={escalaCelulas.filter(
+          (c) =>
+            c.cadastro_id ===
+            escalaCadastros.find((x) => x.funcionario_id === cicloEmEdicao?.id)?.id,
+        )}
         legenda={legenda}
-        detalhes={escalaDetalhes.filter((d) => d.escala_id === escalaEmEdicao?.id)}
-        vinculos={escalaFuncionarios.filter((v) => v.escala_id === escalaEmEdicao?.id)}
-        funcionarios={funcionarios.filter((f) => f.equipe_id === id)}
-        salvarEscala={salvarEscala}
-        salvarGrade={salvarGradeEscala}
-        salvarVinculo={salvarEscalaFuncionario}
-        removerVinculo={removerEscalaFuncionario}
+        colegas={funcionarios.filter(
+          (f) => f.equipe_id === id && f.id !== cicloEmEdicao?.id && f.status !== 'desligado',
+        )}
+        aoFechar={() => setCicloEmEdicao(null)}
+        garantirLegenda={copiarLegendaParaEquipe}
+        salvarCiclo={salvarCiclo}
       />
-
-      <AlertDialog open={escalaAExcluir !== null} onOpenChange={(v) => !v && setEscalaAExcluir(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Excluir a escala {escalaAExcluir?.nome}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              A grade do ciclo e as posições somem junto. Os plantões que já foram gerados ficam no
-              calendário de Plantões — apague-os por lá se também não quiser mais.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={async () => {
-                if (!escalaAExcluir) return;
-                await removerEscala(escalaAExcluir.id);
-                toast.success('Escala excluída.');
-                setEscalaAExcluir(null);
-              }}
-            >
-              Excluir
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       <Sheet open={adicionarPessoa} onOpenChange={(v) => !v && setAdicionarPessoa(false)}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-md">
@@ -1054,7 +891,8 @@ export default function EscalaEquipePage() {
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {[...porTurno.entries()].map(([turnoId, quantidade]) => {
-                    const turno = [FOLGA, ...legenda].find((t) => t.id === turnoId) ?? FOLGA;
+                    const turno = legenda.find((t) => t.id === turnoId);
+                    if (!turno) return null;
                     return (
                       <span
                         key={turnoId}
