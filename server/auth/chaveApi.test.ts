@@ -6,12 +6,12 @@
  */
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
-import { gerarChaveApi } from './chaveApi';
+import { EscopoInsuficiente, exigirEscopoParaMetodo, gerarChaveApi, type SessaoApi } from './chaveApi';
 
 describe('gerarChaveApi', () => {
   it('gera um token com o prefixo esperado', () => {
     const { chave } = gerarChaveApi();
-    expect(chave.startsWith('lumini_n8n_')).toBe(true);
+    expect(chave.startsWith('lumini_')).toBe(true);
   });
 
   it('nunca repete duas chaves', () => {
@@ -28,5 +28,34 @@ describe('gerarChaveApi', () => {
     const { chave, prefixo } = gerarChaveApi();
     expect(chave.startsWith(prefixo)).toBe(true);
     expect(prefixo.length).toBeLessThan(chave.length);
+  });
+});
+
+describe('exigirEscopoParaMetodo', () => {
+  const token = (escopo: SessaoApi['escopo']): SessaoApi => ({
+    id: 'tok1',
+    nome: 'Integração',
+    usuario_id: 'u1',
+    escopo,
+  });
+
+  it('token de leitura passa em GET e HEAD', () => {
+    for (const metodo of ['GET', 'HEAD', 'OPTIONS', 'get']) {
+      expect(() => exigirEscopoParaMetodo(token('leitura'), metodo)).not.toThrow();
+    }
+  });
+
+  it('token de leitura recusa qualquer escrita, mesmo sendo de admin', () => {
+    // O escopo só reduz: quem é admin e emitiu um token de leitura não grava
+    // com ele. É o menor privilégio para o script que só consulta.
+    for (const metodo of ['POST', 'PUT', 'PATCH', 'DELETE', 'delete']) {
+      expect(() => exigirEscopoParaMetodo(token('leitura'), metodo)).toThrow(EscopoInsuficiente);
+    }
+  });
+
+  it('token de escrita passa nos dois', () => {
+    for (const metodo of ['GET', 'POST', 'PUT', 'DELETE']) {
+      expect(() => exigirEscopoParaMetodo(token('escrita'), metodo)).not.toThrow();
+    }
   });
 });

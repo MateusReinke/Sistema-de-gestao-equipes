@@ -3,9 +3,20 @@
  *
  * Diferente da sessão de usuário — cookie opaco, curta, pensada para
  * navegador — uma chave de API é de longa duração e chamada por outro
- * serviço, sem interação humana. Por design ela só abre as rotas de leitura
- * em `/api/n8n/*`: automação de terceiro não grava dado de RH, e vazar uma
- * chave não dá a quem a pegou o poder de alterar nada.
+ * serviço, sem interação humana.
+ *
+ * **O token não tem permissão própria: ele herda a de quem o criou.** A
+ * requisição autenticada por chave monta exatamente a mesma sessão que o dono
+ * teria no navegador, e daí em diante passa pelas mesmas regras de papel e de
+ * equipe que o resto da aplicação — um token de colaborador enxerga o que o
+ * colaborador enxerga, um token de admin enxerga tudo. O escopo só **reduz**
+ * isso: `leitura` recusa qualquer método de escrita, mesmo sendo de admin.
+ *
+ * O que nenhum token faz, de qualquer papel, é mexer em credencial — login,
+ * senha, SSO e os próprios tokens exigem sessão de navegador (ver
+ * `exigirSessaoHumana` em `rotas/auth.ts`). Sem essa fronteira, um token
+ * vazado viraria acesso permanente: bastaria criar outro token, ou trocar uma
+ * senha, para a revogação não adiantar mais nada.
  *
  * O token só existe em claro no momento em que é gerado — quem cria anota e
  * guarda; o banco recebe apenas o hash. SHA-256 basta aqui porque o token já
@@ -19,7 +30,7 @@ import type { FastifyRequest } from 'fastify';
 import { db } from '../db/index';
 import * as t from '../db/schema';
 
-const PREFIXO_CHAVE = 'lumini_n8n_';
+const PREFIXO_CHAVE = 'lumini_';
 
 const sha256 = (texto: string) => createHash('sha256').update(texto, 'utf8').digest('hex');
 
@@ -85,12 +96,20 @@ function dentroDoLimite(chaveId: string): boolean {
 export interface SessaoApi {
   id: string;
   nome: string;
+  /** Dono do token; ausente nas chaves antigas, criadas por linha de comando. */
+  usuario_id: string | null;
+  escopo: 'leitura' | 'escrita';
 }
 
-/** Resolve a chave de API do cabeçalho da requisição, ou interrompe com erro. */
-export async function exigirChaveApi(req: FastifyRequest): Promise<SessaoApi> {
+/**
+ * Resolve a chave de API do cabeçalho, ou `null` quando não veio nenhuma.
+ *
+ * Devolver `null` em vez de lançar é o que permite uma rota aceitar cookie
+ * **ou** token: sem cabeçalho, ainda há a sessão de navegador para tentar.
+ */
+export async function lerChaveApi(req: FastifyRequest): Promise<SessaoApi | null> {
   const bruta = extrairChave(req);
-  if (!bruta) throw new ChaveApiInvalida();
+  if (!bruta) return null;
 
   const [linha] = await db
     .select()
@@ -116,5 +135,33 @@ export async function exigirChaveApi(req: FastifyRequest): Promise<SessaoApi> {
     }
   })();
 
-  return { id: linha.id, nome: linha.nome };
+  return {
+    id: linha.id,
+    nome: linha.nome,
+    usuario_id: linha.usuario_id,
+    escopo: linha.escopo,
+  };
+}
+
+/** Exige a chave — usado pelas rotas de automação, que não aceitam cookie. */
+export async function exigirChaveApi(req: FastifyRequest): Promise<SessaoApi> {
+  const chave = await lerChaveApi(req);
+  if (!chave) throw new ChaveApiInvalida();
+  return chave;
+}
+
+/** Métodos que alteram dado — só um token com escopo de escrita os alcança. */
+const METODOS_DE_ESCRITA = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+export class EscopoInsuficiente extends Error {
+  constructor() {
+    super('Este token é somente leitura. Gere um token com escopo de escrita para esta operação.');
+  }
+}
+
+/** Recusa escrita quando o token que autenticou a requisição é só de leitura. */
+export function exigirEscopoParaMetodo(chave: SessaoApi, metodo: string): void {
+  if (chave.escopo === 'leitura' && METODOS_DE_ESCRITA.has(metodo.toUpperCase())) {
+    throw new EscopoInsuficiente();
+  }
 }

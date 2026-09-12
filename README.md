@@ -649,3 +649,13 @@ docker compose exec web npm run senha:hash -- 'a-senha-provisoria'
 
 Se depois ligar o SSO, o `email` em `usuarios` precisa ser exatamente o que o
 provedor de identidade devolve — é por ele que os dois lados se encontram.
+
+## API
+
+Integrações chamam a API com um **token** emitido na tela *Tokens de API*. O
+token não tem permissão própria: ele herda o papel de quem o criou, então um
+token de colaborador enxerga o que o colaborador enxerga.
+
+A referência completa, com um `curl` de exemplo por rota, está em
+[`public/docs/api.md`](public/docs/api.md) — e é servida pela própria aplicação
+em `/docs/api.md`.

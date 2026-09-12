@@ -5,6 +5,7 @@ import {
   ClipboardCheck,
   FileClock,
   KeyRound,
+  TerminalSquare,
   LayoutDashboard,
   LogOut,
   Megaphone,
@@ -92,6 +93,7 @@ const GRUPOS: { rotulo: string; itens: ItemNav[] }[] = [
       { titulo: 'Auditoria', url: '/auditoria', icone: FileClock, papeis: ['admin', 'rh'] },
       { titulo: 'Autenticação', url: '/autenticacao', icone: ShieldCheck, papeis: ['admin'] },
       { titulo: 'Integrações', url: '/integracoes', icone: Plug, papeis: ['admin'] },
+      { titulo: 'Tokens de API', url: '/tokens', icone: TerminalSquare },
     ],
   },
 ];

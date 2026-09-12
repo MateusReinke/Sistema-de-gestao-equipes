@@ -105,6 +105,12 @@ export const categoriaSistema = pgEnum('categoria_sistema', [
   'rh',
 ]);
 export const nivelAcesso = pgEnum('nivel_acesso', ['leitura', 'escrita', 'admin']);
+/**
+ * O que um token de API pode fazer — sempre **dentro** do que o dono já podia.
+ * `leitura` recusa qualquer método de escrita, mesmo para um token de admin:
+ * é o menor privilégio para o caso comum de um script que só consulta.
+ */
+export const escopoChaveApi = pgEnum('escopo_chave_api', ['leitura', 'escrita']);
 export const tipoAcesso = pgEnum('tipo_acesso', ['concessao', 'alteracao', 'revogacao']);
 export const categoriaComunicado = pgEnum('categoria_comunicado', [
   'geral',
@@ -839,6 +845,19 @@ export const chavesApi = pgTable(
     /** Primeiros caracteres do token, só para identificar a chave numa listagem. */
     prefixo: varchar('prefixo', { length: 24 }).notNull(),
     chave_hash: varchar('chave_hash', { length: 64 }).notNull(),
+    /**
+     * Dono do token. É ele que define o que a chave alcança: a requisição
+     * autenticada por ela monta exatamente a mesma sessão que o dono teria no
+     * navegador, e passa pelas mesmas regras de papel e de equipe. Um token de
+     * colaborador não vira token de admin por ser um token.
+     *
+     * Nulo nas chaves antigas, criadas por linha de comando antes de existir
+     * dono: essas continuam valendo só para as rotas de leitura `/api/n8n/*`.
+     */
+    usuario_id: varchar('usuario_id', { length: 40 }).references(() => usuarios.id, {
+      onDelete: 'cascade',
+    }),
+    escopo: escopoChaveApi('escopo').notNull().default('leitura'),
     ativo: boolean('ativo').notNull().default(true),
     criado_em: isoTimestamp('criado_em').notNull(),
     /** Nulo quando criada por script de linha de comando, fora de uma sessão. */
@@ -846,7 +865,10 @@ export const chavesApi = pgTable(
     expira_em: isoTimestamp('expira_em'),
     ultimo_uso_em: isoTimestamp('ultimo_uso_em'),
   },
-  (t) => ({ hashUnico: uniqueIndex('chaves_api_hash_idx').on(t.chave_hash) }),
+  (t) => ({
+    hashUnico: uniqueIndex('chaves_api_hash_idx').on(t.chave_hash),
+    porDono: index('chaves_api_usuario_idx').on(t.usuario_id),
+  }),
 );
 
 /** Todas as tabelas de negócio, na ordem segura de inserção do seed. */

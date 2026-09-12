@@ -11,6 +11,8 @@ import { config } from '../config';
 import { db } from '../db/index';
 import * as t from '../db/schema';
 import { criarSessao, encerrarSessao, lerSessao, type Sessao } from '../auth/sessao';
+import { COLUNAS_USUARIO, comoPublico } from '../auth/usuario-publico';
+import { exigirEscopoParaMetodo, lerChaveApi } from '../auth/chaveApi';
 import { LoginRecusado, SsoIndisponivel, concluirLogin, iniciarLogin, urlDeLogout } from '../auth/oidc';
 import { metodosDisponiveis } from '../auth/configuracao';
 import { equipesVisiveis, ehRh } from '../auth/permissoes';
@@ -25,10 +27,70 @@ import { registrar } from '../auditoria';
 
 export class NaoAutenticado extends Error {}
 
-/** Resolve a sessão ou interrompe a requisição com 401. */
+/**
+ * Resolve a sessão da requisição: cookie do navegador ou token de API.
+ *
+ * O token não traz permissão própria — ele carrega o **dono**, e daqui sai a
+ * mesma `Sessao` que essa pessoa teria logada. Todo o resto da aplicação
+ * (papel, equipes visíveis, autorização de escrita) continua funcionando sem
+ * saber por onde a requisição entrou, que é o ponto: não existe uma segunda
+ * régua de permissão para manter em dia.
+ */
 export async function exigirSessao(req: FastifyRequest): Promise<Sessao> {
+  const porCookie = await lerSessao(req);
+  if (porCookie) return porCookie;
+
+  const chave = await lerChaveApi(req);
+  if (!chave) throw new NaoAutenticado('Sessão expirada ou inexistente.');
+
+  // Chave antiga, criada por linha de comando antes de existir dono: continua
+  // valendo só para as rotas de automação, que a exigem diretamente.
+  if (!chave.usuario_id) {
+    throw new NaoAutenticado(
+      'Este token não tem dono e só alcança as rotas /api/n8n. Gere um token novo pela tela de Tokens de API.',
+    );
+  }
+
+  exigirEscopoParaMetodo(chave, req.method);
+
+  const [linha] = await db
+    .select({ ...COLUNAS_USUARIO, funcionario: t.funcionarios })
+    .from(t.usuarios)
+    .innerJoin(t.funcionarios, eq(t.funcionarios.id, t.usuarios.funcionario_id))
+    .where(eq(t.usuarios.id, chave.usuario_id))
+    .limit(1);
+
+  // Usuário desativado ou desligado derruba o token junto — revogar o acesso
+  // de uma pessoa não pode deixar uma credencial dela de pé.
+  const { funcionario, ...usuario } = linha ?? {};
+  if (!linha || !usuario.ativo || funcionario.status === 'desligado') {
+    throw new NaoAutenticado('O dono deste token não tem mais acesso.');
+  }
+
+  return {
+    usuario: comoPublico(usuario as Parameters<typeof comoPublico>[0]),
+    funcionario,
+    sessaoId: `token:${chave.id}`,
+    origem: 'token',
+    token: { id: chave.id, nome: chave.nome, escopo: chave.escopo },
+  };
+}
+
+/**
+ * Sessão de navegador, obrigatoriamente.
+ *
+ * Credencial não se gerencia por token: login, senha, SSO e os próprios
+ * tokens exigem que uma pessoa esteja de fato logada. Sem essa fronteira, um
+ * token vazado viraria acesso permanente — bastaria emitir outro token, ou
+ * trocar uma senha, para a revogação deixar de adiantar.
+ */
+export async function exigirSessaoHumana(req: FastifyRequest): Promise<Sessao> {
   const sessao = await lerSessao(req);
-  if (!sessao) throw new NaoAutenticado('Sessão expirada ou inexistente.');
+  if (!sessao) {
+    throw new NaoAutenticado(
+      'Esta operação mexe em credenciais e exige sessão de navegador — token de API não alcança.',
+    );
+  }
   return sessao;
 }
 
@@ -49,9 +111,20 @@ export function rotasAuth(app: FastifyInstance): void {
     };
   });
 
+  /**
+   * Quem a requisição representa e o que alcança.
+   *
+   * Aceita token de propósito: é a rota de diagnóstico de quem integra — quando
+   * uma chamada volta 403, é aqui que se descobre com que papel o token está
+   * entrando e quais equipes ele enxerga.
+   */
   app.get('/api/auth/me', async (req, reply) => {
-    const sessao = await lerSessao(req);
-    if (!sessao) return reply.code(401).send({ erro: 'Não autenticado.' });
+    let sessao: Sessao;
+    try {
+      sessao = await exigirSessao(req);
+    } catch {
+      return reply.code(401).send({ erro: 'Não autenticado.' });
+    }
 
     return reply.send({
       usuario: sessao.usuario,
@@ -60,6 +133,9 @@ export function rotasAuth(app: FastifyInstance): void {
       ehRh: ehRh(sessao),
       equipesVisiveis: await equipesVisiveis(sessao),
       deveTrocarSenha: sessao.usuario.deve_trocar_senha,
+      // Presente só quando a chamada veio por token — ajuda a integração a
+      // confirmar qual credencial está em uso e qual o escopo dela.
+      token: sessao.token,
     });
   });
 
@@ -132,7 +208,7 @@ export function rotasAuth(app: FastifyInstance): void {
   app.post<{ Body: { senhaAtual?: string; senhaNova?: string } }>(
     '/api/auth/senha',
     async (req, reply) => {
-      const sessao = await exigirSessao(req);
+      const sessao = await exigirSessaoHumana(req);
       const senhaAtual = String(req.body?.senhaAtual ?? '');
       const senhaNova = String(req.body?.senhaNova ?? '');
 

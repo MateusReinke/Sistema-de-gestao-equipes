@@ -11,7 +11,7 @@ import { db } from '../db/index';
 import * as t from '../db/schema';
 import { registrar } from '../auditoria';
 import { exigir } from '../auth/permissoes';
-import { exigirSessao } from './auth';
+import { exigirSessaoHumana } from './auth';
 import {
   clientSecret,
   lerConfiguracao,
@@ -26,7 +26,7 @@ export function rotasAdministracao(app: FastifyInstance): void {
   /* --------------------------------------------- configuração de autenticação */
 
   app.get('/api/admin/auth', async (req, reply) => {
-    const sessao = await exigirSessao(req);
+    const sessao = await exigirSessaoHumana(req);
     exigir(sessao.usuario.role === 'admin', 'Só a administração acessa esta configuração.');
 
     const cfg = await lerConfiguracao();
@@ -56,7 +56,7 @@ export function rotasAdministracao(app: FastifyInstance): void {
   app.post<{ Body: { issuer?: string; clientId?: string; clientSecret?: string } }>(
     '/api/admin/auth/testar',
     async (req, reply) => {
-      const sessao = await exigirSessao(req);
+      const sessao = await exigirSessaoHumana(req);
       exigir(sessao.usuario.role === 'admin', 'Só a administração testa esta configuração.');
 
       const cfg = await lerConfiguracao();
@@ -104,7 +104,7 @@ export function rotasAdministracao(app: FastifyInstance): void {
       oidc_escopo?: string;
     };
   }>('/api/admin/auth', async (req, reply) => {
-    const sessao = await exigirSessao(req);
+    const sessao = await exigirSessaoHumana(req);
     exigir(sessao.usuario.role === 'admin', 'Só a administração altera esta configuração.');
 
     const atual = await lerConfiguracao();
@@ -207,7 +207,7 @@ export function rotasAdministracao(app: FastifyInstance): void {
   app.post<{ Params: { id: string } }>(
     '/api/admin/usuarios/:id/senha-temporaria',
     async (req, reply) => {
-      const sessao = await exigirSessao(req);
+      const sessao = await exigirSessaoHumana(req);
       exigir(sessao.usuario.role === 'admin', 'Só a administração redefine senha de terceiros.');
 
       const [usuario] = await db
@@ -250,7 +250,7 @@ export function rotasAdministracao(app: FastifyInstance): void {
   app.post<{ Params: { id: string }; Body: { senha?: string } }>(
     '/api/admin/usuarios/:id/senha',
     async (req, reply) => {
-      const sessao = await exigirSessao(req);
+      const sessao = await exigirSessaoHumana(req);
       exigir(sessao.usuario.role === 'admin', 'Só a administração define senha de terceiros.');
 
       const senha = String(req.body?.senha ?? '');
@@ -298,7 +298,7 @@ export function rotasAdministracao(app: FastifyInstance): void {
   app.post<{ Params: { id: string } }>(
     '/api/admin/usuarios/:id/desbloquear',
     async (req, reply) => {
-      const sessao = await exigirSessao(req);
+      const sessao = await exigirSessaoHumana(req);
       exigir(sessao.usuario.role === 'admin', 'Só a administração desbloqueia acesso.');
 
       await db

@@ -18,6 +18,15 @@ export interface Sessao {
   usuario: UsuarioPublico;
   funcionario: typeof t.funcionarios.$inferSelect;
   sessaoId: string;
+  /**
+   * Como a requisição se autenticou. Uma sessão vinda de token tem o mesmo
+   * usuário e as mesmas permissões que a de cookie — o que muda é que ela não
+   * alcança credenciais (login, senha, SSO, os próprios tokens), e que um
+   * token de leitura recusa qualquer escrita.
+   */
+  origem: 'cookie' | 'token';
+  /** O token que autenticou, quando `origem` é `token`. */
+  token?: { id: string; nome: string; escopo: 'leitura' | 'escrita' };
 }
 
 const token = () => randomBytes(32).toString('hex');
@@ -70,7 +79,7 @@ export async function lerSessao(req: FastifyRequest): Promise<Sessao | null> {
   // Usuário desativado ou funcionário desligado perde o acesso na hora.
   if (!usuario.ativo || funcionario.status === 'desligado') return null;
 
-  return { usuario: comoPublico(usuario), funcionario, sessaoId: id };
+  return { usuario: comoPublico(usuario), funcionario, sessaoId: id, origem: 'cookie' };
 }
 
 export async function encerrarSessao(req: FastifyRequest, reply: FastifyReply): Promise<void> {

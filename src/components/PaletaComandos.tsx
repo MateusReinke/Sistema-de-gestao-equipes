@@ -5,6 +5,7 @@ import {
   CalendarDays,
   ClipboardCheck,
   KeyRound,
+  TerminalSquare,
   LayoutDashboard,
   Megaphone,
   Palmtree,
@@ -41,6 +42,7 @@ const PAGINAS = [
   { titulo: 'Acessos', url: '/acessos', icone: KeyRound },
   { titulo: 'Comunicados', url: '/comunicados', icone: Megaphone },
   { titulo: 'Auditoria', url: '/auditoria', icone: FileClock },
+  { titulo: 'Tokens de API', url: '/tokens', icone: TerminalSquare },
   { titulo: 'Autenticação', url: '/autenticacao', icone: ShieldCheck },
   { titulo: 'Integrações', url: '/integracoes', icone: Plug },
 ];

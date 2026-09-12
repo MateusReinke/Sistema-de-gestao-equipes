@@ -1,10 +1,13 @@
 /**
  * Gerencia chaves de API para automação externa (n8n e afins).
  *
- * Fica em script, e não numa tela, de propósito: mintar uma credencial que lê
- * plantonista, escalonamento e grupo de WhatsApp de todo cliente é uma
- * decisão de operação, não de clique — exige acesso ao servidor, do mesmo
- * jeito que criar o primeiro administrador (`bootstrap-admin.ts`) exige.
+ * Hoje o caminho normal é a tela **Tokens de API**, onde cada pessoa emite o
+ * seu e ele herda as permissões dela. Este script continua para o caso em que
+ * não há ninguém logado para clicar: subir uma integração antes do primeiro
+ * usuário existir, ou destravar automação com a aplicação fora do ar.
+ *
+ * A chave criada aqui não tem dono e, por isso, alcança só as rotas de leitura
+ * `/api/n8n/*` — sem dono não há papel de quem herdar.
  *
  * Uso:
  *   npm run api:chave -- criar "n8n produção" [--dias 365]

@@ -35,6 +35,7 @@ const ComunicadosPage = lazy(() => import('@/pages/ComunicadosPage'));
 const AuditoriaPage = lazy(() => import('@/pages/AuditoriaPage'));
 const AutenticacaoPage = lazy(() => import('@/pages/AutenticacaoPage'));
 const IntegracoesPage = lazy(() => import('@/pages/IntegracoesPage'));
+const TokensPage = lazy(() => import('@/pages/TokensPage'));
 
 const queryClient = new QueryClient();
 
@@ -116,6 +117,8 @@ function Rotas() {
       <Route path="/auditoria" element={<Protegida papeis={RH}><AuditoriaPage /></Protegida>} />
       <Route path="/autenticacao" element={<Protegida papeis={ADMIN}><AutenticacaoPage /></Protegida>} />
       <Route path="/integracoes" element={<Protegida papeis={ADMIN}><IntegracoesPage /></Protegida>} />
+      {/* Qualquer papel emite o próprio token: ele só alcança o que a pessoa já alcança. */}
+      <Route path="/tokens" element={<Protegida><TokensPage /></Protegida>} />
 
       <Route path="*" element={<NotFound />} />
     </Routes>
